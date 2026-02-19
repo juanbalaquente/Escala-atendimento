@@ -93,8 +93,9 @@ Detalhes importantes:
 
 1. Inicie `Apache` e `MySQL` no XAMPP.
 2. Abra o `phpMyAdmin`.
-3. Importe o arquivo:
+3. Importe os arquivos nesta ordem:
    - `database/schema.sql`
+   - `database/seed.sql` (opcional, para dados iniciais e dados ficticios de teste)
 4. Verifique as credenciais em `app/config/db.php`:
    - host: `127.0.0.1`
    - porta: `3306`
