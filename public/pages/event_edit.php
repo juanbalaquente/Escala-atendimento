@@ -191,6 +191,7 @@ if (!$rowsForForm) {
 
         <div class="actions-row">
             <button type="button" id="btnAddRow" class="btn-secondary">Adicionar linha</button>
+            <button type="button" id="btnAutoSchedule" class="btn-secondary">Gerar escala automatica</button>
             <button type="button" id="btnValidate" class="btn-secondary">Validar</button>
             <button type="submit" id="btnSaveShifts" class="btn-primary">Salvar escala</button>
             <a class="btn-secondary" href="index.php?page=events">Voltar</a>

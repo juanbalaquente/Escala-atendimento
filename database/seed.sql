@@ -60,3 +60,56 @@ INNER JOIN collaborators c ON c.name = src.name AND c.team_id = t.id
 INNER JOIN events e ON e.label = 'TESTE_FDS_14-03-2026'
 LEFT JOIN shifts s ON s.event_id = e.id AND s.collaborator_id = c.id
 WHERE s.id IS NULL;
+
+-- Ajustes opcionais para autoescala (se colunas existirem no schema atual)
+SET @has_gender := (
+    SELECT COUNT(*)
+    FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'collaborators'
+      AND COLUMN_NAME = 'gender'
+);
+
+SET @has_weekday_end := (
+    SELECT COUNT(*)
+    FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'collaborators'
+      AND COLUMN_NAME = 'weekday_shift_end'
+);
+
+SET @sql_gender := IF(
+    @has_gender > 0,
+    "UPDATE collaborators
+     SET gender = CASE UPPER(name)
+         WHEN 'AGATA' THEN 'F'
+         WHEN 'ANA LUIZA' THEN 'F'
+         WHEN 'LUANNA' THEN 'F'
+         ELSE gender
+     END",
+    "SELECT 1"
+);
+PREPARE stmt_gender FROM @sql_gender;
+EXECUTE stmt_gender;
+DEALLOCATE PREPARE stmt_gender;
+
+SET @sql_weekday_end := IF(
+    @has_weekday_end > 0,
+    "UPDATE collaborators
+     SET weekday_shift_end = CASE UPPER(name)
+         WHEN 'PEDRO' THEN '22:00:00'
+         WHEN 'ANA LUIZA' THEN '22:00:00'
+         WHEN 'LUANNA' THEN '22:00:00'
+         WHEN 'CARLOS' THEN '20:40:00'
+         WHEN 'JOÃO' THEN '14:20:00'
+         WHEN 'JO?O' THEN '14:20:00'
+         WHEN 'AGATA' THEN '14:20:00'
+         WHEN 'RYAN' THEN '15:40:00'
+         WHEN 'LEONNE' THEN '17:00:00'
+         ELSE weekday_shift_end
+     END",
+    "SELECT 1"
+);
+PREPARE stmt_weekday_end FROM @sql_weekday_end;
+EXECUTE stmt_weekday_end;
+DEALLOCATE PREPARE stmt_weekday_end;

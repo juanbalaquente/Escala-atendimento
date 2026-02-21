@@ -15,6 +15,7 @@ $allowedPages = [
     'event_print',
     'api_validate',
     'api_events_generate_weekends',
+    'api_events_auto_schedule',
 ];
 
 $page = $_GET['page'] ?? 'dashboard';

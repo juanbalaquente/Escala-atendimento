@@ -63,9 +63,10 @@
         const form = document.getElementById('shiftsForm');
         const tbody = document.getElementById('shiftsBody');
         const addBtn = document.getElementById('btnAddRow');
+        const autoBtn = document.getElementById('btnAutoSchedule');
         const validateBtn = document.getElementById('btnValidate');
 
-        if (!form || !tbody || !addBtn || !validateBtn) {
+        if (!form || !tbody || !addBtn || !autoBtn || !validateBtn) {
             return;
         }
 
@@ -248,6 +249,36 @@
         renumberRows();
 
         addBtn.addEventListener('click', addRow);
+        autoBtn.addEventListener('click', async function () {
+            const originalText = autoBtn.textContent;
+            autoBtn.disabled = true;
+            autoBtn.textContent = 'Gerando...';
+            showValidationResult([], false);
+
+            try {
+                const response = await fetch('index.php?page=api_events_auto_schedule', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ event_id: window.escalaData.eventId })
+                });
+                const data = await response.json();
+
+                if (!response.ok || !data.success) {
+                    showValidationResult([data.message || 'Falha ao gerar escala automatica.'], false);
+                    return;
+                }
+
+                showValidationResult([data.message || 'Escala automatica gerada.'], true);
+                setTimeout(function () {
+                    window.location.reload();
+                }, 500);
+            } catch (error) {
+                showValidationResult(['Erro ao gerar escala automatica.'], false);
+            } finally {
+                autoBtn.disabled = false;
+                autoBtn.textContent = originalText;
+            }
+        });
         validateBtn.addEventListener('click', function () {
             runValidation(false);
         });
