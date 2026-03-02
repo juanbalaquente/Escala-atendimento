@@ -78,6 +78,14 @@ SET @has_weekday_end := (
       AND COLUMN_NAME = 'weekday_shift_end'
 );
 
+SET @has_rotation_group := (
+    SELECT COUNT(*)
+    FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'collaborators'
+      AND COLUMN_NAME = 'rotation_group'
+);
+
 SET @sql_gender := IF(
     @has_gender > 0,
     "UPDATE collaborators
@@ -113,3 +121,22 @@ SET @sql_weekday_end := IF(
 PREPARE stmt_weekday_end FROM @sql_weekday_end;
 EXECUTE stmt_weekday_end;
 DEALLOCATE PREPARE stmt_weekday_end;
+
+SET @sql_rotation_group := IF(
+    @has_rotation_group > 0,
+    "UPDATE collaborators
+     SET rotation_group = CASE UPPER(name)
+         WHEN 'JOÃO' THEN 'A'
+         WHEN 'JO?O' THEN 'A'
+         WHEN 'AGATA' THEN 'A'
+         WHEN 'RYAN' THEN 'A'
+         WHEN 'CARLOS' THEN 'B'
+         WHEN 'ANA LUIZA' THEN 'B'
+         WHEN 'LUANNA' THEN 'B'
+         ELSE rotation_group
+     END",
+    "SELECT 1"
+);
+PREPARE stmt_rotation_group FROM @sql_rotation_group;
+EXECUTE stmt_rotation_group;
+DEALLOCATE PREPARE stmt_rotation_group;

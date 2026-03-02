@@ -33,11 +33,13 @@ function generate_auto_schedule(PDO $pdo, int $eventId): array
 
     $hasGender = collaborators_has_column($pdo, 'gender');
     $hasWeekdayEnd = collaborators_has_column($pdo, 'weekday_shift_end');
+    $hasRotationGroup = collaborators_has_column($pdo, 'rotation_group');
 
     $activeStmt = $pdo->prepare(
         'SELECT id, name, team_id'
         . ($hasGender ? ', gender' : '')
         . ($hasWeekdayEnd ? ', weekday_shift_end' : '')
+        . ($hasRotationGroup ? ', rotation_group' : '')
         . '
          FROM collaborators
          WHERE is_active = 1 AND team_id IN (:analista_id, :n1_id)
@@ -57,6 +59,7 @@ function generate_auto_schedule(PDO $pdo, int $eventId): array
             'name' => (string) $person['name'],
             'gender' => $hasGender ? (string) ($person['gender'] ?? 'N') : 'N',
             'weekday_shift_end' => $hasWeekdayEnd ? normalize_time((string) ($person['weekday_shift_end'] ?? '')) : null,
+            'rotation_group' => resolve_rotation_group((int) $person['id'], (string) $person['name'], (string) ($person['rotation_group'] ?? ''), $hasRotationGroup),
         ];
 
         if ((int) $person['team_id'] === $teamByCode['ANALISTA']) {
@@ -81,6 +84,18 @@ function generate_auto_schedule(PDO $pdo, int $eventId): array
     $blockedByAdjacentEvent = load_blocked_adjacent_weekend_ids($pdo, $eventDate, $weekday);
 
     if ($weekday === 6) {
+        $reservedForSunday = predict_reserved_ids_for_sunday($pdo, $eventDate, $n1, $usage, $blockedByAdjacentEvent, 5);
+        $blockedSaturday = merge_blocked_ids($blockedByAdjacentEvent, $reservedForSunday);
+        $eligibleSaturdayCount = count_available_candidates($n1, $blockedSaturday);
+        if ($eligibleSaturdayCount < 5) {
+            throw new RuntimeException(
+                "Escala de sabado inviavel com as regras atuais: necessario 5 N1 elegiveis, mas ha {$eligibleSaturdayCount}. " .
+                "A regra 'quem trabalha domingo nao trabalha sabado' bloqueou parte do time. Ative mais colaboradores ou flexibilize a regra."
+            );
+        }
+
+        $reservedForNight = reserve_non_female_for_night_slots($n1, $blockedSaturday, $usage, 3, 2);
+
         $analyst = pick_rotating_analyst($pdo, $analysts, $eventDate, $teamByCode['ANALISTA'], $blockedByAdjacentEvent);
         $rows[] = [
             'team_id' => $teamByCode['ANALISTA'],
@@ -92,33 +107,141 @@ function generate_auto_schedule(PDO $pdo, int $eventId): array
             'break_10_2' => '16:00:00',
         ];
 
+        // Prioriza turnos mais restritivos primeiro (08:00), depois fechamento.
         $slots = [
             ['shift_start' => '08:00:00', 'shift_end' => '14:20:00', 'break_10_1' => '09:20:00', 'break_20' => '11:10:00', 'break_10_2' => '12:40:00', 'kind' => 'early'],
             ['shift_start' => '08:00:00', 'shift_end' => '14:20:00', 'break_10_1' => '09:40:00', 'break_20' => '11:30:00', 'break_10_2' => '12:50:00', 'kind' => 'early'],
-            ['shift_start' => '09:00:00', 'shift_end' => '15:40:00', 'break_10_1' => '10:20:00', 'break_20' => '12:10:00', 'break_10_2' => '14:20:00', 'kind' => 'early'],
+            [
+                'shift_start' => '09:00:00',
+                'shift_end' => '15:40:00',
+                'break_10_1' => '10:20:00',
+                'break_20' => '12:10:00',
+                'break_10_2' => '14:20:00',
+                'kind' => 'early',
+                'allow_start_0920_fallback' => true,
+                'fallback_shift_start' => '09:20:00',
+                'fallback_break_10_1' => '10:40:00',
+                'fallback_break_20' => '12:10:00',
+                'fallback_break_10_2' => '14:30:00',
+            ],
+            ['shift_start' => '15:40:00', 'shift_end' => '22:00:00', 'break_10_1' => '16:40:00', 'break_20' => '18:30:00', 'break_10_2' => '20:20:00', 'kind' => 'last'],
             ['shift_start' => '14:20:00', 'shift_end' => '20:40:00', 'break_10_1' => '15:40:00', 'break_20' => '17:30:00', 'break_10_2' => '19:20:00', 'kind' => 'late'],
-            ['shift_start' => '15:40:00', 'shift_end' => '22:00:00', 'break_10_1' => '16:40:00', 'break_20' => '18:30:00', 'break_10_2' => '20:20:00', 'kind' => 'late'],
         ];
 
-        foreach ($slots as $slot) {
-            $person = pick_n1_for_slot($n1, $usedIds, $blockedByAdjacentEvent, $usage, $slot['kind'], $slot['shift_start']);
+        foreach ($slots as $slotIndex => $slot) {
+            $slotStartForRule = $slot['shift_start'];
+            $slotStartToSave = $slot['shift_start'];
+            $break101ToSave = $slot['break_10_1'];
+            $break20ToSave = $slot['break_20'];
+            $break102ToSave = $slot['break_10_2'];
+            $blockedForThisSlot = $blockedSaturday;
+            if (!in_array((string) ($slot['kind'] ?? ''), ['late', 'last'], true) && count($reservedForNight) > 0) {
+                $blockedForThisSlot = merge_blocked_ids($blockedForThisSlot, $reservedForNight);
+            }
+
+            try {
+                $person = pick_n1_for_slot(
+                    $n1,
+                    $usedIds,
+                    $blockedForThisSlot,
+                    $usage,
+                    $slot['kind'],
+                    $slotStartForRule,
+                    [],
+                    $eventDate,
+                    (int) $slotIndex
+                );
+            } catch (RuntimeException $e) {
+                $allowFallback = (bool) ($slot['allow_start_0920_fallback'] ?? false);
+                if (!$allowFallback) {
+                    throw $e;
+                }
+
+                $slotStartForRule = (string) ($slot['fallback_shift_start'] ?? '09:20:00');
+                $slotStartToSave = $slotStartForRule;
+                $break101ToSave = (string) ($slot['fallback_break_10_1'] ?? $break101ToSave);
+                $break20ToSave = (string) ($slot['fallback_break_20'] ?? $break20ToSave);
+                $break102ToSave = (string) ($slot['fallback_break_10_2'] ?? $break102ToSave);
+                $person = pick_n1_for_slot(
+                    $n1,
+                    $usedIds,
+                    $blockedForThisSlot,
+                    $usage,
+                    $slot['kind'],
+                    $slotStartForRule,
+                    [],
+                    $eventDate,
+                    (int) $slotIndex
+                );
+            }
+
             $usedIds[$person['id']] = true;
             $rows[] = [
                 'team_id' => $teamByCode['SUPORTE_N1'],
                 'collaborator_id' => $person['id'],
-                'shift_start' => $slot['shift_start'],
+                'shift_start' => $slotStartToSave,
                 'shift_end' => $slot['shift_end'],
-                'break_10_1' => $slot['break_10_1'],
-                'break_20' => $slot['break_20'],
-                'break_10_2' => $slot['break_10_2'],
+                'break_10_1' => $break101ToSave,
+                'break_20' => $break20ToSave,
+                'break_10_2' => $break102ToSave,
             ];
         }
     } else {
+        $activeSundayGroup = resolve_active_sunday_group($pdo, $eventDate, $n1);
+        $sundayPool = array_values(array_filter(
+            $n1,
+            static fn (array $person): bool => (string) ($person['rotation_group'] ?? 'A') === $activeSundayGroup
+        ));
+        if (count($sundayPool) < 2) {
+            // Fallback: se o grupo ativo nao tiver 2 pessoas, amplia para todo o pool N1.
+            $sundayPool = $n1;
+        }
+
         $blockedSunday = load_blocked_sunday_ids($pdo, $eventDate, $blockedByAdjacentEvent);
         $blockedMorning = load_blocked_sunday_morning_ids($pdo, $eventDate, $blockedSunday);
         $sundayUsage = load_sunday_usage_stats($pdo, $eventDate);
 
-        $morning = pick_n1_for_slot($n1, $usedIds, $blockedMorning, $usage, 'early', '08:00:00', $sundayUsage);
+        try {
+            $morning = pick_n1_for_slot(
+                $sundayPool,
+                $usedIds,
+                $blockedMorning,
+                $usage,
+                'early',
+                '08:00:00',
+                $sundayUsage,
+                $eventDate,
+                0
+            );
+        } catch (RuntimeException $e) {
+            try {
+                // Relaxa apenas restricao do turno da manha.
+                $morning = pick_n1_for_slot(
+                    $sundayPool,
+                    $usedIds,
+                    $blockedSunday,
+                    $usage,
+                    'early',
+                    '08:00:00',
+                    $sundayUsage,
+                    $eventDate,
+                    0
+                );
+            } catch (RuntimeException $e2) {
+                // Ultimo fallback: ignora bloqueios do sabado para nao travar geracao.
+                $morning = pick_n1_for_slot(
+                    $n1,
+                    $usedIds,
+                    [],
+                    $usage,
+                    'early',
+                    '08:00:00',
+                    $sundayUsage,
+                    $eventDate,
+                    0
+                );
+            }
+        }
         $usedIds[$morning['id']] = true;
         $rows[] = [
             'team_id' => $teamByCode['SUPORTE_N1'],
@@ -130,7 +253,32 @@ function generate_auto_schedule(PDO $pdo, int $eventId): array
             'break_10_2' => '12:40:00',
         ];
 
-        $afternoon = pick_n1_for_slot($n1, $usedIds, $blockedSunday, $usage, 'regular', '10:40:00', $sundayUsage);
+        try {
+            $afternoon = pick_n1_for_slot(
+                $sundayPool,
+                $usedIds,
+                $blockedSunday,
+                $usage,
+                'last',
+                '10:40:00',
+                $sundayUsage,
+                $eventDate,
+                1
+            );
+        } catch (RuntimeException $e) {
+            // Fallback final para garantir preenchimento de domingo.
+            $afternoon = pick_n1_for_slot(
+                $n1,
+                $usedIds,
+                [],
+                $usage,
+                'last',
+                '10:40:00',
+                $sundayUsage,
+                $eventDate,
+                1
+            );
+        }
         $rows[] = [
             'team_id' => $teamByCode['SUPORTE_N1'],
             'collaborator_id' => $afternoon['id'],
@@ -193,6 +341,84 @@ function collaborators_has_column(PDO $pdo, string $column): bool
         'column_name' => $column,
     ]);
     return (int) $stmt->fetchColumn() > 0;
+}
+
+function merge_blocked_ids(array $a, array $b): array
+{
+    $merged = [];
+    foreach ($a as $id => $blocked) {
+        if ($blocked) {
+            $merged[(int) $id] = true;
+        }
+    }
+    foreach ($b as $id => $blocked) {
+        if ($blocked) {
+            $merged[(int) $id] = true;
+        }
+    }
+    return $merged;
+}
+
+function count_available_candidates(array $candidates, array $blockedIds): int
+{
+    $count = 0;
+    foreach ($candidates as $candidate) {
+        $id = (int) ($candidate['id'] ?? 0);
+        if ($id > 0 && !isset($blockedIds[$id])) {
+            $count++;
+        }
+    }
+    return $count;
+}
+
+function reserve_non_female_for_night_slots(
+    array $candidates,
+    array $blockedIds,
+    array $usage,
+    int $requiredBeforeNight,
+    int $nightSlotsCount
+): array
+{
+    $eligibleNightCandidates = [];
+    foreach ($candidates as $candidate) {
+        $id = (int) ($candidate['id'] ?? 0);
+        if ($id <= 0 || isset($blockedIds[$id])) {
+            continue;
+        }
+        $gender = strtoupper((string) ($candidate['gender'] ?? 'N'));
+        if ($gender === 'F') {
+            continue;
+        }
+        $eligibleNightCandidates[] = $candidate;
+    }
+
+    if (count($eligibleNightCandidates) === 0 || $nightSlotsCount <= 0) {
+        return [];
+    }
+
+    usort($eligibleNightCandidates, static function (array $a, array $b) use ($usage): int {
+        $aScore = (($usage[(int) $a['id']] ?? 0) * 100) + (int) $a['id'];
+        $bScore = (($usage[(int) $b['id']] ?? 0) * 100) + (int) $b['id'];
+        return $aScore <=> $bScore;
+    });
+
+    $reserved = [];
+    foreach ($eligibleNightCandidates as $candidate) {
+        if (count($reserved) >= $nightSlotsCount) {
+            break;
+        }
+        $candidateId = (int) $candidate['id'];
+        $reserved[$candidateId] = true;
+
+        // Nao reserva se isso inviabilizar os turnos anteriores aos noturnos.
+        $availableAfterReserve = count_available_candidates($candidates, merge_blocked_ids($blockedIds, $reserved));
+        if ($availableAfterReserve < $requiredBeforeNight) {
+            unset($reserved[$candidateId]);
+            break;
+        }
+    }
+
+    return $reserved;
 }
 
 function load_usage_stats(PDO $pdo, string $eventDate): array
@@ -283,18 +509,29 @@ function load_blocked_sunday_morning_ids(PDO $pdo, string $eventDate, array $ini
 function load_blocked_adjacent_weekend_ids(PDO $pdo, string $eventDate, int $weekday): array
 {
     if ($weekday === 6) {
-        $adjacentDate = (new DateTimeImmutable($eventDate))->modify('+1 day')->format('Y-m-d');
+        $sundayAfter = (new DateTimeImmutable($eventDate))->modify('+1 day')->format('Y-m-d');
+        $sundayBefore = (new DateTimeImmutable($eventDate))->modify('-6 day')->format('Y-m-d');
+
+        $stmt = $pdo->prepare(
+            'SELECT DISTINCT s.collaborator_id
+             FROM shifts s
+             INNER JOIN events e ON e.id = s.event_id
+             WHERE e.event_date IN (:sunday_after, :sunday_before)'
+        );
+        $stmt->execute([
+            'sunday_after' => $sundayAfter,
+            'sunday_before' => $sundayBefore,
+        ]);
     } else {
         $adjacentDate = (new DateTimeImmutable($eventDate))->modify('-1 day')->format('Y-m-d');
+        $stmt = $pdo->prepare(
+            'SELECT DISTINCT s.collaborator_id
+             FROM shifts s
+             INNER JOIN events e ON e.id = s.event_id
+             WHERE e.event_date = :adjacent_date'
+        );
+        $stmt->execute(['adjacent_date' => $adjacentDate]);
     }
-
-    $stmt = $pdo->prepare(
-        'SELECT DISTINCT s.collaborator_id
-         FROM shifts s
-         INNER JOIN events e ON e.id = s.event_id
-         WHERE e.event_date = :adjacent_date'
-    );
-    $stmt->execute(['adjacent_date' => $adjacentDate]);
 
     $blocked = [];
     foreach ($stmt->fetchAll() as $row) {
@@ -307,7 +544,6 @@ function load_blocked_adjacent_weekend_ids(PDO $pdo, string $eventDate, int $wee
 function load_blocked_sunday_ids(PDO $pdo, string $eventDate, array $initialBlocked): array
 {
     $saturdayDate = (new DateTimeImmutable($eventDate))->modify('-1 day')->format('Y-m-d');
-    $blockedAfterThree = load_blocked_after_three_consecutive_sundays($pdo, $eventDate);
 
     $stmt = $pdo->prepare(
         'SELECT DISTINCT s.collaborator_id
@@ -318,11 +554,6 @@ function load_blocked_sunday_ids(PDO $pdo, string $eventDate, array $initialBloc
     $stmt->execute(['saturday_date' => $saturdayDate]);
 
     $blocked = $initialBlocked;
-    foreach ($blockedAfterThree as $collaboratorId => $isBlocked) {
-        if ($isBlocked) {
-            $blocked[$collaboratorId] = true;
-        }
-    }
     foreach ($stmt->fetchAll() as $row) {
         $blocked[(int) $row['collaborator_id']] = true;
     }
@@ -330,33 +561,194 @@ function load_blocked_sunday_ids(PDO $pdo, string $eventDate, array $initialBloc
     return $blocked;
 }
 
-function load_blocked_after_three_consecutive_sundays(PDO $pdo, string $eventDate): array
+function resolve_rotation_group(int $id, string $name, string $rawGroup, bool $hasRotationGroup): string
 {
-    $base = new DateTimeImmutable($eventDate);
-    $d1 = $base->modify('-7 day')->format('Y-m-d');
-    $d2 = $base->modify('-14 day')->format('Y-m-d');
-    $d3 = $base->modify('-21 day')->format('Y-m-d');
-
-    $stmt = $pdo->prepare(
-        'SELECT s.collaborator_id, COUNT(DISTINCT e.event_date) AS cnt
-         FROM shifts s
-         INNER JOIN events e ON e.id = s.event_id
-         WHERE e.event_date IN (:d1, :d2, :d3)
-         GROUP BY s.collaborator_id
-         HAVING cnt = 3'
-    );
-    $stmt->execute([
-        'd1' => $d1,
-        'd2' => $d2,
-        'd3' => $d3,
-    ]);
-
-    $blocked = [];
-    foreach ($stmt->fetchAll() as $row) {
-        $blocked[(int) $row['collaborator_id']] = true;
+    if ($hasRotationGroup) {
+        $normalized = strtoupper(trim($rawGroup));
+        if ($normalized === 'A' || $normalized === 'B') {
+            return $normalized;
+        }
     }
 
-    return $blocked;
+    $firstLetter = strtoupper(substr(trim($name), 0, 1));
+    if (in_array($firstLetter, ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M'], true)) {
+        return 'A';
+    }
+    if (in_array($firstLetter, ['N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z'], true)) {
+        return 'B';
+    }
+
+    return $id % 2 === 0 ? 'A' : 'B';
+}
+
+function resolve_active_sunday_group(PDO $pdo, string $eventDate, array $n1Pool): string
+{
+    $allGroups = ['A', 'B'];
+    $history = load_sunday_group_history($pdo, $eventDate);
+    if (!$history) {
+        $groupCounts = ['A' => 0, 'B' => 0];
+        foreach ($n1Pool as $person) {
+            $group = (string) ($person['rotation_group'] ?? 'A');
+            if (!isset($groupCounts[$group])) {
+                $groupCounts[$group] = 0;
+            }
+        }
+        $groupSundayUsage = load_sunday_group_usage_stats($pdo, $eventDate, $n1Pool);
+        foreach ($groupSundayUsage as $group => $count) {
+            $groupCounts[$group] = $count;
+        }
+        if ($groupCounts['A'] === $groupCounts['B']) {
+            return random_int(0, 1) === 0 ? 'A' : 'B';
+        }
+        return $groupCounts['A'] <= $groupCounts['B'] ? 'A' : 'B';
+    }
+
+    $lastGroup = $history[0]['group'];
+    $consecutive = 0;
+    foreach ($history as $item) {
+        if ($item['group'] !== $lastGroup) {
+            break;
+        }
+        $consecutive++;
+    }
+
+    if ($consecutive >= 3) {
+        return $lastGroup === 'A' ? 'B' : 'A';
+    }
+
+    return in_array($lastGroup, $allGroups, true) ? $lastGroup : 'A';
+}
+
+function load_sunday_group_history(PDO $pdo, string $eventDate): array
+{
+    $hasRotationGroup = collaborators_has_column($pdo, 'rotation_group');
+    $stmt = $pdo->prepare(
+        'SELECT e.event_date'
+         . ($hasRotationGroup ? ', c.rotation_group' : '')
+         . ', c.id, c.name
+         FROM shifts s
+         INNER JOIN events e ON e.id = s.event_id
+         INNER JOIN collaborators c ON c.id = s.collaborator_id
+         INNER JOIN teams t ON t.id = s.team_id
+         WHERE e.event_date < :event_date
+           AND DAYOFWEEK(e.event_date) = 1
+           AND t.code = "SUPORTE_N1"
+         ORDER BY e.event_date DESC, s.id ASC'
+    );
+    $stmt->execute(['event_date' => $eventDate]);
+
+    $grouped = [];
+    foreach ($stmt->fetchAll() as $row) {
+        $date = (string) $row['event_date'];
+        $group = resolve_rotation_group(
+            (int) $row['id'],
+            (string) $row['name'],
+            (string) ($row['rotation_group'] ?? ''),
+            $hasRotationGroup
+        );
+        if (!isset($grouped[$date])) {
+            $grouped[$date] = [];
+        }
+        $grouped[$date][$group] = ($grouped[$date][$group] ?? 0) + 1;
+    }
+
+    $history = [];
+    foreach ($grouped as $date => $counts) {
+        $groupA = $counts['A'] ?? 0;
+        $groupB = $counts['B'] ?? 0;
+        $history[] = [
+            'date' => $date,
+            'group' => $groupA >= $groupB ? 'A' : 'B',
+        ];
+    }
+
+    usort($history, static fn (array $a, array $b): int => strcmp($b['date'], $a['date']));
+    return $history;
+}
+
+function load_sunday_group_usage_stats(PDO $pdo, string $eventDate, array $n1Pool): array
+{
+    $usageByCollaborator = load_sunday_usage_stats($pdo, $eventDate);
+    $groupUsage = ['A' => 0, 'B' => 0];
+    foreach ($n1Pool as $person) {
+        $group = (string) ($person['rotation_group'] ?? 'A');
+        if (!isset($groupUsage[$group])) {
+            $groupUsage[$group] = 0;
+        }
+        $groupUsage[$group] += (int) ($usageByCollaborator[(int) $person['id']] ?? 0);
+    }
+
+    return $groupUsage;
+}
+
+function predict_reserved_ids_for_sunday(
+    PDO $pdo,
+    string $saturdayDate,
+    array $n1Pool,
+    array $usage,
+    array $alreadyBlocked,
+    int $requiredSaturdaySlots
+): array
+{
+    $sundayDate = (new DateTimeImmutable($saturdayDate))->modify('+1 day')->format('Y-m-d');
+    $activeGroup = resolve_active_sunday_group($pdo, $sundayDate, $n1Pool);
+    $groupPool = array_values(array_filter(
+        $n1Pool,
+        static fn (array $person): bool => (string) ($person['rotation_group'] ?? 'A') === $activeGroup
+    ));
+
+    if (count($groupPool) <= 2) {
+        $reserved = [];
+        foreach ($groupPool as $person) {
+            $reserved[(int) $person['id']] = true;
+        }
+        return $reserved;
+    }
+
+    usort($groupPool, static function (array $a, array $b) use ($usage): int {
+        $aScore = (($usage[(int) $a['id']] ?? 0) * 100) + (int) $a['id'];
+        $bScore = (($usage[(int) $b['id']] ?? 0) * 100) + (int) $b['id'];
+        return $aScore <=> $bScore;
+    });
+
+    $reserved = [];
+    $maxReserve = 2;
+    if (count($groupPool) > 0) {
+        $baseScore = (($usage[(int) $groupPool[0]['id']] ?? 0) * 100) + (int) $groupPool[0]['id'];
+        $window = array_values(array_filter($groupPool, static function (array $person) use ($usage, $baseScore): bool {
+            $score = (($usage[(int) $person['id']] ?? 0) * 100) + (int) $person['id'];
+            return $score <= ($baseScore + 15);
+        }));
+        if (count($window) >= $maxReserve) {
+            shuffle($window);
+            $window = array_slice($window, 0, $maxReserve);
+            foreach ($window as $person) {
+                $reserved[(int) $person['id']] = true;
+            }
+        } else {
+            foreach ($groupPool as $person) {
+                if (count($reserved) >= $maxReserve) {
+                    break;
+                }
+                $reserved[(int) $person['id']] = true;
+            }
+        }
+    }
+
+    $availableForSaturday = 0;
+    foreach ($n1Pool as $person) {
+        $id = (int) $person['id'];
+        if (isset($alreadyBlocked[$id]) || isset($reserved[$id])) {
+            continue;
+        }
+        $availableForSaturday++;
+    }
+
+    if ($availableForSaturday < $requiredSaturdaySlots) {
+        return [];
+    }
+
+    return $reserved;
 }
 
 function load_sunday_usage_stats(PDO $pdo, string $eventDate): array
@@ -386,11 +778,13 @@ function pick_n1_for_slot(
     array $usage,
     string $slotKind,
     string $slotStart,
-    array $sundayUsage = []
+    array $sundayUsage = [],
+    string $eventDate = '',
+    int $slotIndex = 0
 ): array
 {
-    $best = null;
-    $bestScore = PHP_INT_MAX;
+    $scored = [];
+    $eligibleNonFemale = 0;
 
     foreach ($candidates as $candidate) {
         $id = (int) $candidate['id'];
@@ -405,14 +799,22 @@ function pick_n1_for_slot(
 
         $score = ($usage[$id] ?? 0) * 100;
         $gender = strtoupper((string) ($candidate['gender'] ?? 'N'));
+        if ($gender !== 'F') {
+            $eligibleNonFemale++;
+        }
 
         if ($slotKind === 'early') {
             if ($gender === 'F') {
-                $score -= 15;
+                $score -= 25;
             }
         } elseif ($slotKind === 'late') {
             if ($gender === 'F') {
-                $score += 15;
+                $score += 50;
+            }
+        } elseif ($slotKind === 'last') {
+            if ($gender === 'F') {
+                // Forte preferencia para nao deixar mulheres no ultimo horario do dia.
+                $score += 500;
             }
         }
 
@@ -420,20 +822,90 @@ function pick_n1_for_slot(
             $score += $sundayUsage[$id] * 40;
         }
 
-        $score += $id;
-
-        if ($score < $bestScore) {
-            $best = $candidate;
-            $bestScore = $score;
+        // Introduz variacao por evento/slot para evitar padrao fixo entre semanas.
+        // Mantem peso de uso historico, mas desempata de forma pseudoaleatoria.
+        if ($eventDate !== '') {
+            $score += stable_event_jitter($eventDate, $slotKind, $slotStart, $slotIndex, $id, 61);
+        } else {
+            $score += random_int(0, 60);
         }
+
+        $scored[] = [
+            'candidate' => $candidate,
+            'score' => $score,
+        ];
     }
 
-    if ($best === null) {
+    if (count($scored) === 0) {
         if ($slotKind === 'early' && count($blockedIds) > 0) {
             throw new RuntimeException('Nao ha colaborador elegivel para este turno por causa das restricoes de sabado/domingo ou expediente semanal.');
         }
         throw new RuntimeException('Nao foi possivel completar a escala automatica com os colaboradores ativos.');
     }
 
-    return $best;
+    if (in_array($slotKind, ['late', 'last'], true) && $eligibleNonFemale > 0) {
+        $scored = array_values(array_filter(
+            $scored,
+            static fn (array $item): bool => strtoupper((string) ($item['candidate']['gender'] ?? 'N')) !== 'F'
+        ));
+    }
+
+    usort($scored, static fn (array $a, array $b): int => $a['score'] <=> $b['score']);
+    $bestScore = (int) $scored[0]['score'];
+
+    // Janela mais ampla para variar melhor entre eventos, sem perder aderencia por score.
+    $window = array_values(array_filter(
+        $scored,
+        static fn (array $item): bool => ((int) $item['score']) <= ($bestScore + 45)
+    ));
+
+    if (count($window) < 2) {
+        $window = array_slice($scored, 0, min(3, count($scored)));
+    }
+
+    $index = pick_stable_index_for_event($eventDate, $slotKind, $slotStart, $slotIndex, count($window));
+    return $window[$index]['candidate'];
+}
+
+function stable_event_jitter(
+    string $eventDate,
+    string $slotKind,
+    string $slotStart,
+    int $slotIndex,
+    int $collaboratorId,
+    int $mod
+): int {
+    if ($mod <= 1) {
+        return 0;
+    }
+
+    $seed = $eventDate . '|' . $slotKind . '|' . $slotStart . '|' . $slotIndex . '|' . $collaboratorId;
+    $hash = hash('sha256', $seed, true);
+    $chunk = unpack('N', substr($hash, 0, 4));
+    $value = (int) ($chunk[1] ?? 0);
+
+    return $value % $mod;
+}
+
+function pick_stable_index_for_event(
+    string $eventDate,
+    string $slotKind,
+    string $slotStart,
+    int $slotIndex,
+    int $poolSize
+): int {
+    if ($poolSize <= 1) {
+        return 0;
+    }
+
+    if ($eventDate === '') {
+        return random_int(0, $poolSize - 1);
+    }
+
+    $seed = $eventDate . '|pick|' . $slotKind . '|' . $slotStart . '|' . $slotIndex;
+    $hash = hash('sha256', $seed, true);
+    $chunk = unpack('N', substr($hash, 0, 4));
+    $value = (int) ($chunk[1] ?? 0);
+
+    return $value % $poolSize;
 }

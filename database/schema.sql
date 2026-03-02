@@ -14,6 +14,7 @@ CREATE TABLE IF NOT EXISTS collaborators (
     team_id INT UNSIGNED NOT NULL,
     gender ENUM('F','M','N') NOT NULL DEFAULT 'N',
     weekday_shift_end TIME NULL,
+    rotation_group ENUM('A','B') NULL,
     is_active TINYINT(1) NOT NULL DEFAULT 1,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,

@@ -1,4 +1,28 @@
 (function () {
+    function initTheme() {
+        const select = document.getElementById('themeSelect');
+        if (!select) {
+            return;
+        }
+
+        function chooseTheme(theme) {
+            const normalized = theme === 'dark' ? 'dark' : 'light';
+            document.documentElement.setAttribute('data-theme', normalized);
+            document.body.setAttribute('data-theme', normalized);
+            localStorage.setItem('escala-theme', normalized);
+            select.value = normalized;
+        }
+
+        const savedTheme = localStorage.getItem('escala-theme');
+        chooseTheme(savedTheme === 'dark' ? 'dark' : 'light');
+
+        select.addEventListener('change', function () {
+            chooseTheme(select.value);
+        });
+
+        window.chooseTheme = chooseTheme;
+    }
+
     function showValidationResult(lines, isSuccess) {
         const box = document.getElementById('validationResult');
         if (!box) {
@@ -293,6 +317,7 @@
     }
 
     document.addEventListener('DOMContentLoaded', function () {
+        initTheme();
         initEventsPage();
         initEventEditPage();
     });

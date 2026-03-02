@@ -57,8 +57,10 @@ $nextEvents = $nextEventsStmt->fetchAll();
                 <td><?= h($event['type']) ?></td>
                 <td><?= h($event['label']) ?></td>
                 <td>
-                    <a href="index.php?page=event_edit&id=<?= (int) $event['id'] ?>">Montar</a>
-                    <a href="index.php?page=event_print&id=<?= (int) $event['id'] ?>" target="_blank">Print</a>
+                    <div class="table-actions">
+                        <a class="action-btn action-primary" href="index.php?page=event_edit&id=<?= (int) $event['id'] ?>">Montar</a>
+                        <a class="action-btn action-ghost" href="index.php?page=event_print&id=<?= (int) $event['id'] ?>" target="_blank">Print</a>
+                    </div>
                 </td>
             </tr>
         <?php endforeach; ?>

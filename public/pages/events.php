@@ -63,7 +63,7 @@ $events = $pdo->query(
      FROM events e
      LEFT JOIN shifts s ON s.event_id = e.id
      GROUP BY e.id
-     ORDER BY e.event_date DESC, e.id DESC'
+     ORDER BY e.event_date ASC, e.id ASC'
 )->fetchAll();
 ?>
 
@@ -132,14 +132,16 @@ $events = $pdo->query(
                 <td><?= h($event['label']) ?></td>
                 <td><?= (int) $event['shifts_count'] ?></td>
                 <td>
-                    <a href="index.php?page=event_edit&id=<?= (int) $event['id'] ?>">Montar escala</a>
-                    <a href="index.php?page=event_print&id=<?= (int) $event['id'] ?>" target="_blank">Print</a>
-                    <a href="index.php?page=events&edit=<?= (int) $event['id'] ?>">Editar</a>
-                    <form method="post" class="inline-form" onsubmit="return confirm('Excluir evento?');">
-                        <input type="hidden" name="action" value="delete">
-                        <input type="hidden" name="id" value="<?= (int) $event['id'] ?>">
-                        <button type="submit" class="link-btn">Excluir</button>
-                    </form>
+                    <div class="table-actions">
+                        <a class="action-btn action-primary" href="index.php?page=event_edit&id=<?= (int) $event['id'] ?>">Montar escala</a>
+                        <a class="action-btn action-ghost" href="index.php?page=event_print&id=<?= (int) $event['id'] ?>" target="_blank">Print</a>
+                        <a class="action-btn action-secondary" href="index.php?page=events&edit=<?= (int) $event['id'] ?>">Editar</a>
+                        <form method="post" class="inline-form table-action-form">
+                            <input type="hidden" name="action" value="delete">
+                            <input type="hidden" name="id" value="<?= (int) $event['id'] ?>">
+                            <button type="submit" class="action-btn action-danger">Excluir</button>
+                        </form>
+                    </div>
                 </td>
             </tr>
         <?php endforeach; ?>
