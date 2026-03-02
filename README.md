@@ -1,30 +1,26 @@
 # Escala de Atendimento (MVP)
 
-Sistema web simples para substituir planilha de escala de atendimento, rodando em ambiente local com XAMPP.
+Sistema web para substituir planilha de escala de atendimento, rodando localmente com XAMPP.
 
 ## Objetivo
 
-Centralizar a montagem de escala de atendimento em um site, com foco em eventos de:
+Centralizar a montagem da escala em um site, com foco em eventos:
 - `FDS` (sabado e domingo)
 - `FERIADO`
 
-Escopo do MVP:
-- Sem login/autenticacao
-- Uso local (intranet/maquina local)
+## Funcionalidades
+
 - CRUD de colaboradores
 - CRUD de eventos
-- Montagem de escala por evento
-- Validacao rigida de turno e pausas
-- Visualizacao para impressao
+- Geracao de eventos de fim de semana por mes (`Gerar FDS do mes`)
+- Montagem manual de escala por evento
+- Geracao automatica de escala por evento (`Gerar escala automatica`)
+- Validacao rigida de turno e pausas (cliente + servidor)
+- Visualizacao de impressao (`Print`)
+- Menu lateral para navegacao
+- Tema claro/escuro com persistencia em `localStorage`
 
-## Stack
-
-- Apache + PHP 8+ (XAMPP)
-- MySQL/MariaDB
-- PHP puro (PDO)
-- HTML + CSS + JavaScript (sem framework)
-
-## Regras de negocio implementadas
+## Regras de negocio
 
 A escala considera apenas:
 - `ANALISTA`
@@ -40,9 +36,28 @@ Cada linha de escala exige:
 Validacoes obrigatorias:
 1. `shift_end > shift_start`
 2. As 3 pausas devem estar dentro do turno
-3. Ordem obrigatoria das pausas: `break_10_1 < break_20 < break_10_2`
+3. Ordem obrigatoria: `break_10_1 < break_20 < break_10_2`
 4. Colaborador nao pode repetir no mesmo evento
 5. Todos os campos sao obrigatorios (incluindo pausas)
+
+## Escala automatica
+
+A autoescala fica na tela `Montar escala`.
+
+Comportamento atual:
+- Sabado: monta 1 analista + 5 SUPORTE_N1
+- Domingo: monta 2 SUPORTE_N1
+- Considera historico para reduzir repeticao de pessoas
+- Aplica aleatorizacao por evento/slot para evitar padrao fixo entre semanas
+- Usa bloqueios entre sabado/domingo para reduzir escalas consecutivas no fim de semana
+- Possui fallback progressivo no domingo para evitar erro de geracao quando o pool estiver muito restrito
+
+## Stack
+
+- Apache + PHP 8+ (XAMPP)
+- MySQL/MariaDB
+- PHP puro (PDO)
+- HTML + CSS + JavaScript (sem framework)
 
 ## Estrutura do projeto
 
@@ -54,8 +69,10 @@ escala/
     lib/
       helpers.php
       validate.php
+      auto_schedule.php
   database/
     schema.sql
+    seed.sql
   public/
     index.php
     assets/
@@ -71,6 +88,7 @@ escala/
       event_print.php
       api_validate.php
       api_events_generate_weekends.php
+      api_events_auto_schedule.php
 ```
 
 ## Banco de dados
@@ -88,6 +106,10 @@ Detalhes importantes:
   - `ANALISTA`
   - `SUPORTE_N1`
 - `shifts` possui `UNIQUE(event_id, collaborator_id)`
+- `collaborators` possui campos extras usados pela autoescala:
+  - `gender` (`F|M|N`)
+  - `weekday_shift_end` (TIME, opcional)
+  - `rotation_group` (`A|B`, opcional)
 
 ## Como rodar localmente (XAMPP)
 
@@ -95,14 +117,14 @@ Detalhes importantes:
 2. Abra o `phpMyAdmin`.
 3. Importe os arquivos nesta ordem:
    - `database/schema.sql`
-   - `database/seed.sql` (opcional, para dados iniciais e dados ficticios de teste)
+   - `database/seed.sql` (opcional, dados iniciais e dados ficticios)
 4. Verifique as credenciais em `app/config/db.php`:
    - host: `127.0.0.1`
    - porta: `3306`
    - banco: `escala_atendimento`
    - usuario: `root`
    - senha: `''` (vazia, padrao local)
-5. Acesse no navegador:
+5. Acesse:
    - `http://localhost/escala/public/`
 
 ## Rotas
@@ -119,53 +141,54 @@ Paginas:
 APIs:
 - `?page=api_validate`
 - `?page=api_events_generate_weekends`
+- `?page=api_events_auto_schedule`
 
-## Fluxo de uso recomendado
+## Fluxo recomendado
 
 1. Cadastre colaboradores em `Colaboradores`.
 2. Crie eventos manualmente em `Eventos` ou use `Gerar FDS do mes`.
-3. Entre em `Montar escala` para um evento.
-4. Adicione linhas, selecione equipe/colaborador, turno e pausas.
-5. Clique em `Validar` (opcional) ou `Salvar escala`.
+3. Entre em `Montar escala`.
+4. Escolha entre:
+   - montar manualmente
+   - gerar automaticamente (`Gerar escala automatica`)
+5. Valide e salve.
 6. Use `Print` para impressao.
 
 ## Tela de impressao
 
 A pagina `event_print`:
-- Agrupa por equipe
-- Lista colaboradores e horarios
-- Usa CSS de impressao (`@media print`)
+- agrupa por equipe
+- lista colaboradores e horarios
+- usa CSS de impressao (`@media print`)
 
 ## Observacoes tecnicas
 
-- Projeto orientado a uso local e simplicidade.
-- Sem autenticacao/login.
-- Sem framework.
-- Persistencia via PDO + prepared statements.
+- Projeto orientado a uso local e simplicidade
+- Sem autenticacao/login
+- Sem framework
+- Persistencia via PDO + prepared statements
 
 ## Troubleshooting rapido
 
 ### Erro de conexao com banco
-- Confirme MySQL ligado no XAMPP.
-- Confirme credenciais em `app/config/db.php`.
-- Reimporte `database/schema.sql`.
+- Confirme MySQL ligado no XAMPP
+- Confirme credenciais em `app/config/db.php`
+- Reimporte `database/schema.sql`
 
-### Pagina em branco ou erro PHP
-- Confira se esta acessando `http://localhost/escala/public/`.
-- Verifique logs do Apache/PHP no XAMPP.
+### Pagina em branco / erro PHP
+- Confira URL: `http://localhost/escala/public/`
+- Verifique logs do Apache/PHP no XAMPP
 
 ### Nao salva escala
-- Confira se todos os campos de cada linha foram preenchidos.
-- Verifique mensagens de validacao na tela.
-- Confirme que o colaborador nao esta repetido no mesmo evento.
+- Confira preenchimento de todos os campos
+- Verifique mensagens de validacao na tela
+- Confirme que colaborador nao esta repetido no mesmo evento
 
-## Proximos passos sugeridos
-
-- Exportar escala para CSV/PDF
-- Filtro por periodo (mes/ano)
-- Copiar escala de um evento para outro
-- Controle de versao da escala (historico)
+### Erro ao gerar escala automatica
+- Verifique se ha colaboradores ativos suficientes
+- Revise `rotation_group` quando usar divisao A/B
+- Verifique se regras de bloqueio de fim de semana nao deixaram o pool muito restrito
 
 ---
 
-Projeto MVP para operacao de escala de atendimento local.
+Projeto MVP para operacao local de escala de atendimento.
