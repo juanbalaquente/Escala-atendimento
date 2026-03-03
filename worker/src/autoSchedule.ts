@@ -474,10 +474,19 @@ function pickN1ForSlot(
     throw new ValidationError("Nao foi possivel completar a escala automatica com os colaboradores ativos.");
   }
 
-  const filtered =
-    (slotKind === "late" || slotKind === "last") && eligibleNonFemale > 0
-      ? scored.filter((item) => item.candidate.gender !== "F")
-      : scored;
+  let filtered = scored;
+  if (slotKind === "late" || slotKind === "last") {
+    const nonFemaleOnly = scored.filter((item) => item.candidate.gender !== "F");
+    if (nonFemaleOnly.length === 0) {
+      throw new ValidationError(
+        "Regra de seguranca: turnos de fechamento (14:20+ e 15:40+) nao podem ser atribuidos a colaboradoras. " +
+          "Ative mais colaboradores elegiveis para fechamento.",
+      );
+    }
+    filtered = nonFemaleOnly;
+  } else if (eligibleNonFemale > 0) {
+    filtered = scored;
+  }
 
   filtered.sort((a, b) => a.score - b.score);
   const bestScore = filtered[0].score;
@@ -683,7 +692,14 @@ export async function generateAutoSchedule(db: D1Database, eventId: number): Pro
       }
 
       const pickWithFallbackScenarios = (startForRule: string): CollaboratorCandidate => {
-        const blockedScenarios: IdMap[] = [blockedForThisSlot, blockedSaturday, {}];
+        const blockedScenarios: IdMap[] =
+          slot.kind === "early" && Object.keys(reservedForNight).length > 0
+            ? [
+                blockedForThisSlot,
+                // Relaxa somente bloqueios de fim de semana, mas preserva a reserva de fechamento.
+                mergeBlockedIds({}, reservedForNight),
+              ]
+            : [blockedForThisSlot, blockedSaturday, {}];
         let lastError: unknown = null;
 
         for (const blockedCandidate of blockedScenarios) {
