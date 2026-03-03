@@ -32,8 +32,8 @@ function renderEvents(events) {
       const label = ev.label ?? "";
       const shiftsCount = ev.shifts_count ?? 0;
 
-      const editHref = `event-edit.html?event_id=${encodeURIComponent(id)}`;
-      const printHref = `event-print.html?event_id=${encodeURIComponent(id)}`;
+      const editHref = `event-edit.html?id=${encodeURIComponent(id)}`;
+      const printHref = `event-print.html?id=${encodeURIComponent(id)}`;
 
       return `<tr>
         <td>${escapeHtml(date)}</td>

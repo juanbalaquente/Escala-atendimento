@@ -8,7 +8,7 @@ import {
 } from "./common.js";
 
 export async function initEventEditPage() {
-  const eventId = Number(getQueryParam("id") || 0);
+  const eventId = Number(getQueryParam("id") || getQueryParam("event_id") || 0);
   const header = document.getElementById("eventHeader");
   const printLink = document.getElementById("printLink");
   const form = document.getElementById("shiftsForm");

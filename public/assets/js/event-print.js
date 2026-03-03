@@ -1,7 +1,7 @@
 import { api, escapeHtml, formatDateBr, getQueryParam, showFlash } from "./common.js";
 
 export async function initEventPrintPage() {
-  const eventId = Number(getQueryParam("id") || 0);
+  const eventId = Number(getQueryParam("id") || getQueryParam("event_id") || 0);
   const eventHeader = document.getElementById("printEventHeader");
   const teamsContainer = document.getElementById("printTeamsContainer");
   const backToEdit = document.getElementById("backToEdit");
