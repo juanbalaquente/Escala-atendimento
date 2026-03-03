@@ -8,17 +8,8 @@ const runtimeApiBase =
 
 const configuredApiBase = runtimeApiBase || storageApiBase;
 
-// Auto-fallback para ambiente Pages.dev (sem domínio próprio):
-// - Se estiver em *.pages.dev e não houver override, usa o Worker.dev diretamente.
-const autoApiBase =
-  typeof window !== "undefined" &&
-  window.location &&
-  window.location.hostname.endsWith(".pages.dev")
-    ? "https://escala-api.juangrochowski.workers.dev/api"
-    : "";
-
-// Prioridade: runtime > localStorage > auto (pages.dev) > "/api" (mesmo domínio)
-export const API_BASE = (configuredApiBase || autoApiBase || "/api").replace(/\/+$/, "");
+// Prioridade: runtime > localStorage > "/api" (mesmo domínio)
+export const API_BASE = (configuredApiBase || "/api").replace(/\/+$/, "");
 
 export function initTheme() {
   const select = document.getElementById("themeSelect");
