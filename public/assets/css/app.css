@@ -127,6 +127,21 @@ a:hover {
     font-size: 12px;
 }
 
+.brand-identity {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.brand-photo {
+    width: 48px;
+    height: 48px;
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    box-shadow: var(--shadow-sm);
+    flex-shrink: 0;
+}
+
 .main-nav {
     display: flex;
     flex-direction: column;
