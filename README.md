@@ -1,19 +1,20 @@
-# Escala de Atendimento (Cloudflare Pages + Worker + D1)
+# Escala de Atendimento
 
-Aplicacao pronta para deploy gratuito na Cloudflare com:
+Aplicacao de escala FDS/feriados pronta para deploy gratuito com Cloudflare:
 
-- Front estatico em `public/`
-- API em Cloudflare Worker (`worker/src/index.ts`)
-- Banco D1 (SQLite) com migrations versionadas
-- Front consumindo `fetch("/api/...")` no mesmo dominio
+- Front estatico em `public/` (Cloudflare Pages)
+- API REST em `worker/src/index.ts` (Cloudflare Worker)
+- Banco SQLite D1 com migrations em `worker/migrations/`
 
-## Arquitetura
+## Stack e arquitetura
 
-- Pages: entrega os arquivos estaticos de `public/`
-- Worker: atende rotas REST em `/api/*`
-- D1: persiste equipes, colaboradores, eventos e escalas
+- `Cloudflare Pages`: entrega HTML/CSS/JS
+- `Cloudflare Worker`: rotas `/api/*`
+- `Cloudflare D1`: persistencia de equipes, colaboradores, eventos e escalas
 
-## Estrutura do repositorio
+O front usa `fetch("/api/...")` por padrao (mesmo dominio).
+
+## Estrutura
 
 ```text
 public/
@@ -22,7 +23,10 @@ public/
   events.html
   event-edit.html
   event-print.html
+  assets/css/app.css
   assets/js/*.js
+  assets/img/brand-avatar.svg
+
 worker/
   src/index.ts
   migrations/0001_init.sql
@@ -30,27 +34,75 @@ worker/
   wrangler.toml
 ```
 
-## Requisitos
+## Regras da autoescala (resumo)
 
-- Node.js 20+
-- npm
-- Conta Cloudflare
-- Wrangler CLI (via `npm`, usando o `package.json` em `worker/`)
+Campos do colaborador que influenciam a geracao automatica:
 
-## 1) Login no Cloudflare
+- `Genero`: turnos de fechamento (`14:20+` e `15:40+`) nao sao atribuiveis para `F`.
+- `Fim expediente semanal (HH:MM)`: se for `>= 22:00`, a pessoa nao entra em slot antes de `09:20`.
+- `Equipe Domingo` (`A`/`B`): usada no rodizio de domingo. Se vazio, o sistema infere grupo por nome/id.
+
+Observacao: a validacao final continua no backend (`/api/validate/shifts`).
+
+## Endpoints principais
+
+- `GET /api/health`
+- `GET /api/dashboard`
+- `GET/POST/PUT/DELETE /api/collaborators`
+- `GET/POST/PUT/DELETE /api/events`
+- `POST /api/events/generate-weekends`
+- `GET /api/events/:id/shifts`
+- `PUT /api/events/:id/shifts`
+- `POST /api/events/:id/auto-schedule`
+- `POST /api/validate/shifts`
+
+## Rodar local
+
+Terminal 1 (API):
+
+```bash
+cd worker
+npm i
+npm run dev
+```
+
+Terminal 2 (front):
+
+```bash
+npx serve public
+```
+
+Por padrao o front usa `API_BASE="/api"`.
+Para apontar manualmente para worker local:
+
+```js
+localStorage.setItem("escala_api_base", "http://127.0.0.1:8787/api");
+location.reload();
+```
+
+Para limpar override:
+
+```js
+localStorage.removeItem("escala_api_base");
+location.reload();
+```
+
+## Deploy Cloudflare (copiar/colar)
+
+### 1) Login
 
 ```bash
 wrangler login
 ```
 
-## 2) Criar o banco D1
+### 2) Criar D1
 
 ```bash
 cd worker
 wrangler d1 create escala-db
 ```
 
-Copie o `database_id` retornado e preencha em `worker/wrangler.toml`:
+Copie o `database_id` retornado para `worker/wrangler.toml`:
 
 ```toml
 name = "escala-api"
@@ -67,9 +119,7 @@ migrations_dir = "migrations"
 APP_VERSION = "0.1.0"
 ```
 
-Se voce estiver usando este repositorio na mesma conta onde o D1 ja existe, mantenha o `database_id` atual.
-
-## 3) Aplicar migrations no remoto (D1)
+### 3) Aplicar migrations no remoto
 
 ```bash
 cd worker
@@ -78,48 +128,17 @@ wrangler d1 migrations apply escala-db --remote
 
 Migrations atuais:
 
-- `0001_init.sql`: schema base (teams, collaborators, events, shifts, indices e triggers)
+- `0001_init.sql`: schema base + indices + triggers + seed de teams
 - `0002_seed_collaborators.sql`: seed inicial de colaboradores (idempotente)
 
-## 4) Rodar local
-
-Terminal 1 (API Worker):
-
-```bash
-cd worker
-npm i
-npm run dev
-```
-
-Terminal 2 (front estatico):
-
-```bash
-npx serve public
-```
-
-Por padrao o front usa `API_BASE="/api"`.
-Se quiser testar front em porta separada contra o worker local (`127.0.0.1:8787`):
-
-```js
-localStorage.setItem("escala_api_base", "http://127.0.0.1:8787/api");
-location.reload();
-```
-
-Para voltar ao padrao:
-
-```js
-localStorage.removeItem("escala_api_base");
-location.reload();
-```
-
-## 5) Deploy do Worker
+### 4) Deploy Worker
 
 ```bash
 cd worker
 npm run deploy
 ```
 
-## 6) Configurar Cloudflare Pages
+### 5) Configurar Pages
 
 No projeto Pages:
 
@@ -127,13 +146,13 @@ No projeto Pages:
 - Build command: `exit 0`
 - Output directory: `public`
 
-## 7) Colocar API no mesmo dominio (`/api/*`)
+### 6) Rota `/api/*` no mesmo dominio
 
-No Dashboard Cloudflare:
+Dashboard:
 
 `Workers & Pages -> escala-api -> Settings -> Domains & Routes -> Add route`
 
-Pattern da rota:
+Pattern:
 
 `<SEU_DOMINIO>/api/*`
 
@@ -141,36 +160,25 @@ Exemplo:
 
 `app.seudominio.com/api/*`
 
-Esse passo e essencial porque o front chama `fetch("/api/...")`.
-
-## 8) Validacao pos-deploy
+## Validacao pos-deploy
 
 1. Abrir `https://<dominio>/api/health`
-2. Confirmar JSON com:
+2. Confirmar retorno com:
    - `ok: true`
-   - `data.ts` (ISO string)
-   - `data.version` (vem de `APP_VERSION`)
+   - `data.ts`
+   - `data.version`
 3. Testar telas:
    - `/index.html`
    - `/collaborators.html`
    - `/events.html`
    - `/event-edit.html?id=<id>`
    - `/event-print.html?id=<id>`
-4. Testar CRUD de colaboradores/eventos e salvar escala
+4. Testar CRUD e "Gerar escala automatica"
 
-## 9) Troubleshooting rapido
+## Troubleshooting rapido
 
-- `404` em `/api/...`: confira se a route `<SEU_DOMINIO>/api/*` foi adicionada ao Worker certo
-- Erro de banco no Worker: valide `binding = "DB"` e `database_id` em `worker/wrangler.toml`
-- Tabela inexistente: rode novamente `wrangler d1 migrations apply escala-db --remote`
-- Front chamando API errada: remova override local com `localStorage.removeItem("escala_api_base")`
-
-## 10) Subir atualizacoes para o GitHub
-
-```bash
-git add .
-git commit -m "chore: final review and production deploy docs"
-git push origin main
-```
-
-Se a branch padrao do seu repositorio nao for `main`, ajuste o ultimo comando.
+- `404` em `/api/...`: rota `<SEU_DOMINIO>/api/*` nao aplicada no Worker correto.
+- Erro de DB: conferir `binding = "DB"` e `database_id` no `wrangler.toml`.
+- Tabela inexistente: reaplicar `wrangler d1 migrations apply escala-db --remote`.
+- Front em host separado: configurar `localStorage.escala_api_base`.
+- Se estiver em `*.pages.dev` sem route no mesmo dominio, o front usa fallback para `workers.dev` configurado em `public/assets/js/common.js`.
