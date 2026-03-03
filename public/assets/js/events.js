@@ -24,7 +24,7 @@ function toMonthYYYYMM(value) {
 }
 
 function renderEvents(events) {
-  const tbody = $(TABLE_BODY_SELECTOR);
+  const tbody = getTbody();
   if (!tbody) return;
 
   if (!Array.isArray(events) || events.length === 0) {
