@@ -1,26 +1,15 @@
 import { api, showFlash, clearFlash, escapeHtml, formatDateBr } from "./common.js";
 
-const TABLE_BODY_SELECTOR = "#eventsTableBody, #events tbody, table tbody";
-
-function $(sel) {
-  return document.querySelector(sel);
+// Pega o <tbody> da tabela de eventos (há 1 na página, conforme seu teste)
+function getTbody() {
+  // Se no futuro você quiser um id específico, coloque primeiro aqui:
+  return document.querySelector("#eventsTableBody") || document.querySelector("table tbody");
 }
 
-
-
-function toIsoDateFromInput(value) {
-  const v = String(value || "").trim();
-  if (/^\d{4}-\d{2}-\d{2}$/.test(v)) return v;
-
-  const m = v.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
-  if (m) return `${m[3]}-${m[2]}-${m[1]}`;
-  return "";
-}
-
-function toMonthYYYYMM(value) {
-  const v = String(value || "").trim();
-  if (/^\d{4}-(0[1-9]|1[0-2])$/.test(v)) return v;
-  return "";
+function setTableMessage(htmlRow) {
+  const tbody = getTbody();
+  if (!tbody) return;
+  tbody.innerHTML = htmlRow;
 }
 
 function renderEvents(events) {
@@ -64,56 +53,11 @@ async function loadEvents() {
   try {
     clearFlash();
     const res = await api("/events", { method: "GET" });
-    const events = res && res.data ? res.data : [];
+    const events = res?.data ?? [];
     renderEvents(events);
   } catch (err) {
     showFlash(err?.message || "Falha ao carregar eventos.", "error");
     setTableMessage(`<tr><td colspan="5">Erro ao carregar.</td></tr>`);
-  }
-}
-
-async function createEvent() {
-  const typeEl = $("#newEventType");
-  const dateEl = $("#newEventDate");
-  const labelEl = $("#newEventLabel");
-
-  const type = String(typeEl?.value || "").trim();
-  const event_date = toIsoDateFromInput(dateEl?.value);
-  const label = String(labelEl?.value || "").trim();
-
-  if (!type || !event_date || !label) {
-    showFlash("Preencha Tipo, Data e Label.", "error");
-    return;
-  }
-
-  try {
-    clearFlash();
-    await api("/events", { method: "POST", body: { type, event_date, label } });
-    showFlash("Evento criado com sucesso.", "success");
-    if (labelEl) labelEl.value = "";
-    await loadEvents();
-  } catch (err) {
-    showFlash(err?.message || "Falha ao criar evento.", "error");
-  }
-}
-
-async function generateWeekends() {
-  const monthEl = $("#weekendsMonth");
-  const month = toMonthYYYYMM(monthEl?.value);
-
-  if (!month) {
-    showFlash("Mês inválido. Use YYYY-MM.", "error");
-    return;
-  }
-
-  try {
-    clearFlash();
-    const res = await api("/events/generate-weekends", { method: "POST", body: { month } });
-    const msg = res?.data?.message || "Geração concluída.";
-    showFlash(msg, "success");
-    await loadEvents();
-  } catch (err) {
-    showFlash(err?.message || "Falha ao gerar finais de semana.", "error");
   }
 }
 
@@ -131,47 +75,30 @@ async function deleteEvent(id) {
   }
 }
 
-function wireActions() {
-  const createBtn = $("#createEventBtn");
-  if (createBtn) {
-    createBtn.addEventListener("click", (e) => {
-      e.preventDefault();
-      createEvent();
-    });
-  }
+function wireDeleteAction() {
+  const tbody = getTbody();
+  if (!tbody) return;
 
-  const genBtn = $("#generateWeekendsBtn");
-  if (genBtn) {
-    genBtn.addEventListener("click", (e) => {
-      e.preventDefault();
-      generateWeekends();
-    });
-  }
+  tbody.addEventListener("click", (e) => {
+    const target = e.target;
+    if (!(target instanceof HTMLElement)) return;
 
-  const tbody = $(TABLE_BODY_SELECTOR);
-  if (tbody) {
-    tbody.addEventListener("click", (e) => {
-      const target = e.target;
-      if (!(target instanceof HTMLElement)) return;
+    const btn = target.closest("button[data-action='delete']");
+    if (!btn) return;
 
-      const btn = target.closest("button[data-action='delete']");
-      if (!btn) return;
-
-      const id = btn.getAttribute("data-id");
-      deleteEvent(id);
-    });
-  }
+    const id = btn.getAttribute("data-id");
+    deleteEvent(id);
+  });
 }
 
-// ✅ Export que o app.js espera
+// ✅ Export que seu app.js espera
 export function initEventsPage() {
-  wireActions();
+  wireDeleteAction();
   loadEvents();
 }
 
-// Se você abrir events.html direto sem app.js, ainda funciona:
+// Fallback caso alguém abra events.html direto
 document.addEventListener("DOMContentLoaded", () => {
-  // evita dupla inicialização caso app.js já chame
   if (!window.__ESCALA_EVENTS_INIT__) {
     window.__ESCALA_EVENTS_INIT__ = true;
     initEventsPage();
