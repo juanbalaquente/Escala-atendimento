@@ -1,23 +1,12 @@
 import { api, showFlash, clearFlash, escapeHtml, formatDateBr } from "./common.js";
 
-/**
- * Só roda na página de eventos.
- * - pathname pode ser "/events" ou "/events.html" dependendo do seu setup.
- */
 function isEventsPage() {
   const path = (window.location.pathname || "").toLowerCase();
-  if (path.endsWith("/events") || path.endsWith("/events.html")) return true;
-
-  // fallback: checa se existe o bloco "Novo evento" + botão "Gerar FDS do mes"
-  const hasNewEvent = !!document.querySelector("h2, h3, h4")?.textContent?.toLowerCase().includes("novo evento");
-  const hasGenerateBtn = Array.from(document.querySelectorAll("button")).some((b) =>
-    (b.textContent || "").toLowerCase().includes("gerar fds")
-  );
-  return hasNewEvent || hasGenerateBtn;
+  return path.endsWith("/events") || path.endsWith("/events.html");
 }
 
 function getTbody() {
-  return document.querySelector("#eventsTableBody") || document.querySelector("table tbody");
+  return document.querySelector("table tbody");
 }
 
 function setTableMessage(htmlRow) {
@@ -63,12 +52,10 @@ function renderEvents(events) {
 
 async function loadEvents() {
   setTableMessage(`<tr><td colspan="5">Carregando...</td></tr>`);
-
   try {
     clearFlash();
     const res = await api("/events", { method: "GET" });
-    const events = res?.data ?? [];
-    renderEvents(events);
+    renderEvents(res?.data ?? []);
   } catch (err) {
     showFlash(err?.message || "Falha ao carregar eventos.", "error");
     setTableMessage(`<tr><td colspan="5">Erro ao carregar.</td></tr>`);
@@ -93,11 +80,11 @@ function normalizeMonth(value) {
   const v = String(value || "").trim();
   if (/^\d{4}-(0[1-9]|1[0-2])$/.test(v)) return v; // YYYY-MM
 
-  // aceita MM/YY (05/26 -> 2026-05)
+  // MM/YY -> 20YY-MM
   const m = v.match(/^(0[1-9]|1[0-2])\/(\d{2})$/);
   if (m) return `20${m[2]}-${m[1]}`;
 
-  // aceita MM/YYYY
+  // MM/YYYY -> YYYY-MM
   const m2 = v.match(/^(0[1-9]|1[0-2])\/(\d{4})$/);
   if (m2) return `${m2[2]}-${m2[1]}`;
 
@@ -106,31 +93,72 @@ function normalizeMonth(value) {
 
 function toIsoDateFromInput(value) {
   const v = String(value || "").trim();
-  if (/^\d{4}-\d{2}-\d{2}$/.test(v)) return v; // input type=date
+  if (/^\d{4}-\d{2}-\d{2}$/.test(v)) return v;
 
   const m = v.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
   if (m) return `${m[3]}-${m[2]}-${m[1]}`;
   return "";
 }
 
+/**
+ * Procura o card "Novo evento" e retorna { typeSelect, dateInput, labelInput, createButton }
+ */
+function findNewEventForm() {
+  const cards = Array.from(document.querySelectorAll("section, div, article"));
+  const card = cards.find((el) => (el.textContent || "").toLowerCase().includes("novo evento"));
+  if (!card) return null;
+
+  const selects = card.querySelectorAll("select");
+  const inputs = card.querySelectorAll("input");
+  const buttons = Array.from(card.querySelectorAll("button"));
+
+  const typeSelect = selects[0] || null;
+  const dateInput = Array.from(inputs).find((i) => i.type === "date") || inputs[0] || null;
+  const labelInput = inputs.length >= 2 ? inputs[1] : null;
+
+  const createButton = buttons.find((b) => (b.textContent || "").trim().toLowerCase() === "criar") || null;
+
+  return { typeSelect, dateInput, labelInput, createButton };
+}
+
+/**
+ * Procura o card "Gerar FDS do mes" e retorna { monthInput, button }
+ */
+function findGenerateMonthForm() {
+  const cards = Array.from(document.querySelectorAll("section, div, article"));
+  const card = cards.find((el) => (el.textContent || "").toLowerCase().includes("gerar fds do mes"));
+  if (!card) return null;
+
+  const monthInput = card.querySelector("input") || null;
+  const button =
+    Array.from(card.querySelectorAll("button")).find((b) => (b.textContent || "").toLowerCase().includes("gerar fds")) ||
+    null;
+
+  return { monthInput, button };
+}
+
 function wireActions() {
-  // IDs esperados SOMENTE na página de eventos:
-  const typeEl = document.querySelector("#newEventType");
-  const dateEl = document.querySelector("#newEventDate");
-  const labelEl = document.querySelector("#newEventLabel");
-  const createBtn = document.querySelector("#createEventBtn");
+  // Delete na tabela
+  const tbody = getTbody();
+  if (tbody) {
+    tbody.addEventListener("click", (e) => {
+      const target = e.target;
+      if (!(target instanceof HTMLElement)) return;
+      const btn = target.closest("button[data-action='delete']");
+      if (!btn) return;
+      deleteEvent(btn.getAttribute("data-id"));
+    });
+  }
 
-  const monthEl = document.querySelector("#weekendsMonth");
-  const genBtn = document.querySelector("#generateWeekendsBtn");
-
-  // se não achar os elementos, não faz bind (não interfere em outras páginas)
-  if (createBtn && typeEl && dateEl && labelEl) {
-    createBtn.addEventListener("click", async (e) => {
+  // Criar evento
+  const newEvent = findNewEventForm();
+  if (newEvent?.createButton) {
+    newEvent.createButton.addEventListener("click", async (e) => {
       e.preventDefault();
 
-      const type = String(typeEl.value || "").trim().toUpperCase();
-      const event_date = toIsoDateFromInput(dateEl.value);
-      const label = String(labelEl.value || "").trim();
+      const type = String(newEvent.typeSelect?.value || "").trim().toUpperCase();
+      const event_date = toIsoDateFromInput(newEvent.dateInput?.value);
+      const label = String(newEvent.labelInput?.value || "").trim();
 
       if (!type || !event_date || !label) {
         showFlash("Preencha Tipo, Data e Label para criar o evento.", "error");
@@ -141,7 +169,7 @@ function wireActions() {
         clearFlash();
         await api("/events", { method: "POST", body: { type, event_date, label } });
         showFlash("Evento criado com sucesso.", "success");
-        labelEl.value = "";
+        if (newEvent.labelInput) newEvent.labelInput.value = "";
         await loadEvents();
       } catch (err) {
         showFlash(err?.message || "Falha ao criar evento.", "error");
@@ -149,11 +177,13 @@ function wireActions() {
     });
   }
 
-  if (genBtn && monthEl) {
-    genBtn.addEventListener("click", async (e) => {
+  // Gerar FDS do mês
+  const gen = findGenerateMonthForm();
+  if (gen?.button) {
+    gen.button.addEventListener("click", async (e) => {
       e.preventDefault();
-      const month = normalizeMonth(monthEl.value);
 
+      const month = normalizeMonth(gen.monthInput?.value);
       if (!month) {
         showFlash("Mês inválido. Use YYYY-MM (ex: 2026-05) ou MM/AA (ex: 05/26).", "error");
         return;
@@ -169,27 +199,12 @@ function wireActions() {
       }
     });
   }
-
-  const tbody = getTbody();
-  if (tbody) {
-    tbody.addEventListener("click", (e) => {
-      const target = e.target;
-      if (!(target instanceof HTMLElement)) return;
-      const btn = target.closest("button[data-action='delete']");
-      if (!btn) return;
-      deleteEvent(btn.getAttribute("data-id"));
-    });
-  }
 }
 
-// Export que seu app.js chama
 export function initEventsPage() {
   if (!isEventsPage()) return;
   wireActions();
   loadEvents();
 }
 
-// fallback se abrir events.html direto
-document.addEventListener("DOMContentLoaded", () => {
-  initEventsPage();
-});
+document.addEventListener("DOMContentLoaded", () => initEventsPage());
