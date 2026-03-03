@@ -17,6 +17,66 @@ import {
 import { validateShiftRows } from "./validation";
 
 const DEFAULT_API_VERSION = "0.1.0";
+// =========================
+// CORS (Pages.dev -> Workers.dev)
+// =========================
+function isAllowedOrigin(origin: string): boolean {
+  try {
+    const u = new URL(origin);
+
+    // Pages deployments (prod e previews)
+    if (u.protocol === "https:" && u.hostname.endsWith(".pages.dev")) return true;
+
+    // Dev local
+    if (u.hostname === "localhost" || u.hostname === "127.0.0.1") return true;
+
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+function getAllowedOrigin(req: Request): string | null {
+  const origin = req.headers.get("Origin");
+  if (!origin) return null;
+  return isAllowedOrigin(origin) ? origin : null;
+}
+
+function applyCors(req: Request, res: Response): Response {
+  const origin = getAllowedOrigin(req);
+  const headers = new Headers(res.headers);
+
+  if (origin) {
+    headers.set("Access-Control-Allow-Origin", origin);
+    headers.set("Vary", "Origin");
+    headers.set("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS");
+    headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    headers.set("Access-Control-Max-Age", "86400");
+  } else {
+    headers.set("Vary", "Origin");
+  }
+
+  return new Response(res.body, { status: res.status, statusText: res.statusText, headers });
+}
+
+function corsPreflight(req: Request): Response | null {
+  if (req.method !== "OPTIONS") return null;
+
+  const origin = getAllowedOrigin(req);
+  const headers = new Headers();
+  if (origin) {
+    headers.set("Access-Control-Allow-Origin", origin);
+    headers.set("Vary", "Origin");
+    headers.set("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS");
+    headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    headers.set("Access-Control-Max-Age", "86400");
+  } else {
+    headers.set("Vary", "Origin");
+  }
+
+  return new Response(null, { status: 204, headers });
+}
+// =========================
 
 interface CollaboratorInputPayload {
   name?: string;
@@ -174,22 +234,32 @@ async function getGroupedActiveCollaborators(db: D1Database): Promise<Record<num
 }
 
 async function handleApiRequest(request: Request, env: Env): Promise<Response> {
+  // Preflight CORS (OPTIONS)
+  const preflight = corsPreflight(request);
+  if (preflight) {
+    return preflight;
+  }
+
   const url = new URL(request.url);
   const { pathname } = url;
 
   if (!pathname.startsWith("/api")) {
-    return jsonError(404, "Rota nao encontrada.");
+    return applyCors(request, jsonError(404, "Rota nao encontrada."));
   }
 
+  // Se alguém mandar OPTIONS fora do preflight (redundância segura)
   if (request.method === "OPTIONS") {
-    return jsonNoContent();
+    return corsPreflight(request) ?? applyCors(request, jsonNoContent());
   }
 
   if (pathname === "/api/health" && request.method === "GET") {
-    return jsonOk({
-      ts: new Date().toISOString(),
-      version: env.APP_VERSION ?? DEFAULT_API_VERSION,
-    });
+    return applyCors(
+      request,
+      jsonOk({
+        ts: new Date().toISOString(),
+        version: env.APP_VERSION ?? DEFAULT_API_VERSION,
+      }),
+    );
   }
 
   if (pathname === "/api/dashboard" && request.method === "GET") {
@@ -210,23 +280,28 @@ async function handleApiRequest(request: Request, env: Env): Promise<Response> {
       )
       .all<{ id: number; type: string; event_date: string; label: string }>();
 
-    return jsonOk({
-      collaborators: Number(collabCountRow?.cnt ?? 0),
-      activeCollaborators: Number(activeCountRow?.cnt ?? 0),
-      events: Number(eventCountRow?.cnt ?? 0),
-      shifts: Number(shiftCountRow?.cnt ?? 0),
-      nextEvents: nextEvents.results ?? [],
-    });
+    return applyCors(
+      request,
+      jsonOk({
+        collaborators: Number(collabCountRow?.cnt ?? 0),
+        activeCollaborators: Number(activeCountRow?.cnt ?? 0),
+        events: Number(eventCountRow?.cnt ?? 0),
+        shifts: Number(shiftCountRow?.cnt ?? 0),
+        nextEvents: nextEvents.results ?? [],
+      }),
+    );
   }
 
   if (pathname === "/api/teams" && request.method === "GET") {
-    const teams = await env.DB.prepare("SELECT id, code, name FROM teams ORDER BY id").all<{ id: number; code: string; name: string }>();
-    return jsonOk(teams.results ?? []);
+    const teams = await env.DB
+      .prepare("SELECT id, code, name FROM teams ORDER BY id")
+      .all<{ id: number; code: string; name: string }>();
+    return applyCors(request, jsonOk(teams.results ?? []));
   }
 
   if (pathname === "/api/collaborators/active-by-team" && request.method === "GET") {
     const grouped = await getGroupedActiveCollaborators(env.DB);
-    return jsonOk(grouped);
+    return applyCors(request, jsonOk(grouped));
   }
 
   if (pathname === "/api/collaborators" && request.method === "GET") {
@@ -259,7 +334,7 @@ async function handleApiRequest(request: Request, env: Env): Promise<Response> {
         rotation_group: string | null;
         is_active: number;
       }>();
-    return jsonOk(collaborators.results ?? []);
+    return applyCors(request, jsonOk(collaborators.results ?? []));
   }
 
   if (pathname === "/api/collaborators" && request.method === "POST") {
@@ -283,12 +358,15 @@ async function handleApiRequest(request: Request, env: Env): Promise<Response> {
         )
         .run();
 
-      return jsonOk(
-        {
-          id: Number(result.meta.last_row_id ?? 0),
-          message: "Colaborador criado com sucesso.",
-        },
-        201,
+      return applyCors(
+        request,
+        jsonOk(
+          {
+            id: Number(result.meta.last_row_id ?? 0),
+            message: "Colaborador criado com sucesso.",
+          },
+          201,
+        ),
       );
     } catch (error) {
       if (isUniqueConstraintError(error)) {
@@ -325,7 +403,7 @@ async function handleApiRequest(request: Request, env: Env): Promise<Response> {
       throw new NotFoundError("Colaborador nao encontrado.");
     }
 
-    return jsonOk({ message: "Colaborador atualizado com sucesso." });
+    return applyCors(request, jsonOk({ message: "Colaborador atualizado com sucesso." }));
   }
 
   if (collaboratorId !== null && request.method === "DELETE") {
@@ -343,11 +421,14 @@ async function handleApiRequest(request: Request, env: Env): Promise<Response> {
       throw new NotFoundError("Colaborador nao encontrado.");
     }
 
-    return jsonOk({
-      message: "Colaborador removido.",
-      removed_shifts: Number(shiftsCountRow?.cnt ?? 0),
-      deleted_shifts_changes: Number(deleteShiftsResult.meta?.changes ?? 0),
-    });
+    return applyCors(
+      request,
+      jsonOk({
+        message: "Colaborador removido.",
+        removed_shifts: Number(shiftsCountRow?.cnt ?? 0),
+        deleted_shifts_changes: Number(deleteShiftsResult.meta?.changes ?? 0),
+      }),
+    );
   }
 
   if (pathname === "/api/events" && request.method === "GET") {
@@ -361,7 +442,7 @@ async function handleApiRequest(request: Request, env: Env): Promise<Response> {
       )
       .all<{ id: number; type: string; event_date: string; label: string; shifts_count: number }>();
 
-    return jsonOk(events.results ?? []);
+    return applyCors(request, jsonOk(events.results ?? []));
   }
 
   if (pathname === "/api/events/generate-weekends" && request.method === "POST") {
@@ -401,17 +482,20 @@ async function handleApiRequest(request: Request, env: Env): Promise<Response> {
       }
     }
 
-    return jsonOk({
-      created,
-      ignored,
-      message: `Geracao concluida: ${created} criados, ${ignored} ja existentes.`,
-    });
+    return applyCors(
+      request,
+      jsonOk({
+        created,
+        ignored,
+        message: `Geracao concluida: ${created} criados, ${ignored} ja existentes.`,
+      }),
+    );
   }
 
   const eventAutoScheduleId = parseEventId(pathname, "auto-schedule");
   if (eventAutoScheduleId !== null && request.method === "POST") {
     const result = await generateAutoSchedule(env.DB, eventAutoScheduleId);
-    return jsonOk(result);
+    return applyCors(request, jsonOk(result));
   }
 
   const eventShiftsId = parseEventId(pathname, "shifts");
@@ -457,12 +541,15 @@ async function handleApiRequest(request: Request, env: Env): Promise<Response> {
       getGroupedActiveCollaborators(env.DB),
     ]);
 
-    return jsonOk({
-      event,
-      teams: teamsResult.results ?? [],
-      rows: shiftsResult.results ?? [],
-      activeCollaboratorsByTeam: activeByTeam,
-    });
+    return applyCors(
+      request,
+      jsonOk({
+        event,
+        teams: teamsResult.results ?? [],
+        rows: shiftsResult.results ?? [],
+        activeCollaboratorsByTeam: activeByTeam,
+      }),
+    );
   }
 
   if (eventShiftsId !== null && request.method === "PUT") {
@@ -500,10 +587,13 @@ async function handleApiRequest(request: Request, env: Env): Promise<Response> {
     }
 
     await env.DB.batch(statements);
-    return jsonOk({
-      message: "Escala salva com sucesso.",
-      saved_rows: validation.rows.length,
-    });
+    return applyCors(
+      request,
+      jsonOk({
+        message: "Escala salva com sucesso.",
+        saved_rows: validation.rows.length,
+      }),
+    );
   }
 
   const eventId = parseEventId(pathname);
@@ -516,7 +606,7 @@ async function handleApiRequest(request: Request, env: Env): Promise<Response> {
     if (!event) {
       throw new NotFoundError("Evento nao encontrado.");
     }
-    return jsonOk(event);
+    return applyCors(request, jsonOk(event));
   }
 
   if (pathname === "/api/events" && request.method === "POST") {
@@ -529,12 +619,15 @@ async function handleApiRequest(request: Request, env: Env): Promise<Response> {
         .bind(payload.type, payload.event_date, payload.label)
         .run();
 
-      return jsonOk(
-        {
-          id: Number(result.meta.last_row_id ?? 0),
-          message: "Evento criado com sucesso.",
-        },
-        201,
+      return applyCors(
+        request,
+        jsonOk(
+          {
+            id: Number(result.meta.last_row_id ?? 0),
+            message: "Evento criado com sucesso.",
+          },
+          201,
+        ),
       );
     } catch (error) {
       if (isUniqueConstraintError(error)) {
@@ -564,7 +657,7 @@ async function handleApiRequest(request: Request, env: Env): Promise<Response> {
       throw error;
     }
 
-    return jsonOk({ message: "Evento atualizado com sucesso." });
+    return applyCors(request, jsonOk({ message: "Evento atualizado com sucesso." }));
   }
 
   if (eventId !== null && request.method === "DELETE") {
@@ -572,7 +665,7 @@ async function handleApiRequest(request: Request, env: Env): Promise<Response> {
     if (Number(result.meta.changes ?? 0) === 0) {
       throw new NotFoundError("Evento nao encontrado.");
     }
-    return jsonOk({ message: "Evento removido." });
+    return applyCors(request, jsonOk({ message: "Evento removido." }));
   }
 
   if (pathname === "/api/validate/shifts" && request.method === "POST") {
@@ -585,10 +678,10 @@ async function handleApiRequest(request: Request, env: Env): Promise<Response> {
         errors: validation.errors,
       });
     }
-    return jsonOk({ valid: true, errors: [] });
+    return applyCors(request, jsonOk({ valid: true, errors: [] }));
   }
 
-  return jsonError(404, "Rota nao encontrada.");
+  return applyCors(request, jsonError(404, "Rota nao encontrada."));
 }
 
 export default {
