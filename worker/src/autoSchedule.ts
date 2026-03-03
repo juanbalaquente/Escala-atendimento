@@ -682,19 +682,37 @@ export async function generateAutoSchedule(db: D1Database, eventId: number): Pro
         blockedForThisSlot = mergeBlockedIds(blockedForThisSlot, reservedForNight);
       }
 
+      const pickWithFallbackScenarios = (startForRule: string): CollaboratorCandidate => {
+        const blockedScenarios: IdMap[] = [blockedForThisSlot, blockedSaturday, {}];
+        let lastError: unknown = null;
+
+        for (const blockedCandidate of blockedScenarios) {
+          try {
+            return pickN1ForSlot(
+              n1,
+              usedIds,
+              blockedCandidate,
+              usage,
+              slot.kind,
+              startForRule,
+              {},
+              eventDate,
+              slotIndex,
+            );
+          } catch (error) {
+            lastError = error;
+          }
+        }
+
+        if (lastError) {
+          throw lastError;
+        }
+        throw new ValidationError("Nao foi possivel completar a escala automatica com os colaboradores ativos.");
+      };
+
       let person: CollaboratorCandidate;
       try {
-        person = pickN1ForSlot(
-          n1,
-          usedIds,
-          blockedForThisSlot,
-          usage,
-          slot.kind,
-          slotStartForRule,
-          {},
-          eventDate,
-          slotIndex,
-        );
+        person = pickWithFallbackScenarios(slotStartForRule);
       } catch (err) {
         if (!slot.allow_start_0920_fallback) {
           throw err;
@@ -706,17 +724,7 @@ export async function generateAutoSchedule(db: D1Database, eventId: number): Pro
         break20ToSave = slot.fallback_break_20 ?? break20ToSave;
         break102ToSave = slot.fallback_break_10_2 ?? break102ToSave;
 
-        person = pickN1ForSlot(
-          n1,
-          usedIds,
-          blockedForThisSlot,
-          usage,
-          slot.kind,
-          slotStartForRule,
-          {},
-          eventDate,
-          slotIndex,
-        );
+        person = pickWithFallbackScenarios(slotStartForRule);
       }
 
       usedIds[person.id] = true;
