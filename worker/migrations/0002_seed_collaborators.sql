@@ -1,21 +1,94 @@
 -- Seed inicial de colaboradores (idempotente)
 
 INSERT INTO collaborators (name, team_id, is_active, gender, weekday_shift_end, rotation_group)
-SELECT src.name, t.id, 1, src.gender, src.weekday_shift_end, src.rotation_group
-FROM (
-  SELECT 'LEONNE' AS name, 'ANALISTA' AS team_code, 'N' AS gender, '17:00:00' AS weekday_shift_end, NULL AS rotation_group
-  UNION ALL SELECT 'PEDRO', 'ANALISTA', 'N', '22:00:00', NULL
-  UNION ALL SELECT 'JOAO', 'SUPORTE_N1', 'N', '14:20:00', 'A'
-  UNION ALL SELECT 'ARTHUR', 'SUPORTE_N1', 'N', '14:20:00', NULL
-  UNION ALL SELECT 'AGATA', 'SUPORTE_N1', 'F', '14:20:00', 'A'
-  UNION ALL SELECT 'RYAN', 'SUPORTE_N1', 'N', '15:40:00', 'A'
-  UNION ALL SELECT 'CARLOS', 'SUPORTE_N1', 'N', '20:40:00', 'B'
-  UNION ALL SELECT 'ANA LUIZA', 'SUPORTE_N1', 'F', '22:00:00', 'B'
-  UNION ALL SELECT 'LUANNA', 'SUPORTE_N1', 'F', '22:00:00', 'B'
-) src
-INNER JOIN teams t ON t.code = src.team_code
-LEFT JOIN collaborators c ON c.name = src.name AND c.team_id = t.id
-WHERE c.id IS NULL;
+SELECT 'LEONNE', t.id, 1, 'N', '17:00:00', NULL
+FROM teams t
+WHERE t.code = 'ANALISTA'
+  AND NOT EXISTS (
+    SELECT 1
+    FROM collaborators c
+    WHERE c.name = 'LEONNE' AND c.team_id = t.id
+  );
+
+INSERT INTO collaborators (name, team_id, is_active, gender, weekday_shift_end, rotation_group)
+SELECT 'PEDRO', t.id, 1, 'N', '22:00:00', NULL
+FROM teams t
+WHERE t.code = 'ANALISTA'
+  AND NOT EXISTS (
+    SELECT 1
+    FROM collaborators c
+    WHERE c.name = 'PEDRO' AND c.team_id = t.id
+  );
+
+INSERT INTO collaborators (name, team_id, is_active, gender, weekday_shift_end, rotation_group)
+SELECT 'JOAO', t.id, 1, 'N', '14:20:00', 'A'
+FROM teams t
+WHERE t.code = 'SUPORTE_N1'
+  AND NOT EXISTS (
+    SELECT 1
+    FROM collaborators c
+    WHERE c.name = 'JOAO' AND c.team_id = t.id
+  );
+
+INSERT INTO collaborators (name, team_id, is_active, gender, weekday_shift_end, rotation_group)
+SELECT 'ARTHUR', t.id, 1, 'N', '14:20:00', NULL
+FROM teams t
+WHERE t.code = 'SUPORTE_N1'
+  AND NOT EXISTS (
+    SELECT 1
+    FROM collaborators c
+    WHERE c.name = 'ARTHUR' AND c.team_id = t.id
+  );
+
+INSERT INTO collaborators (name, team_id, is_active, gender, weekday_shift_end, rotation_group)
+SELECT 'AGATA', t.id, 1, 'F', '14:20:00', 'A'
+FROM teams t
+WHERE t.code = 'SUPORTE_N1'
+  AND NOT EXISTS (
+    SELECT 1
+    FROM collaborators c
+    WHERE c.name = 'AGATA' AND c.team_id = t.id
+  );
+
+INSERT INTO collaborators (name, team_id, is_active, gender, weekday_shift_end, rotation_group)
+SELECT 'RYAN', t.id, 1, 'N', '15:40:00', 'A'
+FROM teams t
+WHERE t.code = 'SUPORTE_N1'
+  AND NOT EXISTS (
+    SELECT 1
+    FROM collaborators c
+    WHERE c.name = 'RYAN' AND c.team_id = t.id
+  );
+
+INSERT INTO collaborators (name, team_id, is_active, gender, weekday_shift_end, rotation_group)
+SELECT 'CARLOS', t.id, 1, 'N', '20:40:00', 'B'
+FROM teams t
+WHERE t.code = 'SUPORTE_N1'
+  AND NOT EXISTS (
+    SELECT 1
+    FROM collaborators c
+    WHERE c.name = 'CARLOS' AND c.team_id = t.id
+  );
+
+INSERT INTO collaborators (name, team_id, is_active, gender, weekday_shift_end, rotation_group)
+SELECT 'ANA LUIZA', t.id, 1, 'F', '22:00:00', 'B'
+FROM teams t
+WHERE t.code = 'SUPORTE_N1'
+  AND NOT EXISTS (
+    SELECT 1
+    FROM collaborators c
+    WHERE c.name = 'ANA LUIZA' AND c.team_id = t.id
+  );
+
+INSERT INTO collaborators (name, team_id, is_active, gender, weekday_shift_end, rotation_group)
+SELECT 'LUANNA', t.id, 1, 'F', '22:00:00', 'B'
+FROM teams t
+WHERE t.code = 'SUPORTE_N1'
+  AND NOT EXISTS (
+    SELECT 1
+    FROM collaborators c
+    WHERE c.name = 'LUANNA' AND c.team_id = t.id
+  );
 
 -- Atualiza dados de expediente/atributos caso os colaboradores ja existam
 UPDATE collaborators
