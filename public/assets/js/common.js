@@ -117,19 +117,34 @@ export async function api(path, options) {
     init.headers["Content-Type"] = "application/json";
   }
 
-  const response = await fetch(`${API_BASE}${path}`, init);
+  let response;
+  try {
+    response = await fetch(`${API_BASE}${path}`, init);
+  } catch (e) {
+    const err = new Error("Falha de rede ao acessar a API. Verifique bloqueadores/extensões.");
+    err.cause = e;
+    err.data = null;
+    err.status = 0;
+    throw err;
+  }
+
   let data = null;
   const contentType = response.headers.get("content-type") || "";
   if (contentType.includes("application/json")) {
-    data = await response.json();
+    try {
+      data = await response.json();
+    } catch {
+      data = null;
+    }
   }
 
   if (!response.ok) {
-    const err = new Error((data && data.error) || "Erro na requisicao.");
+    const err = new Error((data && data.error) || `Erro na requisicao (HTTP ${response.status}).`);
     err.data = data;
     err.status = response.status;
     throw err;
   }
 
-  return data;
+  // Garante um retorno consistente para o front
+  return data ?? { ok: true, data: null, error: null };
 }
