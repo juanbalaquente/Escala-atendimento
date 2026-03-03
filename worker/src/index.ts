@@ -18,63 +18,33 @@ import { validateShiftRows } from "./validation";
 
 const DEFAULT_API_VERSION = "0.1.0";
 // =========================
-// CORS (Pages.dev -> Workers.dev)
 // =========================
-function isAllowedOrigin(origin: string): boolean {
-  try {
-    const u = new URL(origin);
-
-    // Pages deployments (prod e previews)
-    if (u.protocol === "https:" && u.hostname.endsWith(".pages.dev")) return true;
-
-    // Dev local
-    if (u.hostname === "localhost" || u.hostname === "127.0.0.1") return true;
-
-    return false;
-  } catch {
-    return false;
-  }
-}
-
-function getAllowedOrigin(req: Request): string | null {
-  const origin = req.headers.get("Origin");
-  if (!origin) return null;
-  return isAllowedOrigin(origin) ? origin : null;
-}
-
+// CORS (liberado enquanto estiver sem domínio)
+// =========================
 function applyCors(req: Request, res: Response): Response {
-  const origin = getAllowedOrigin(req);
   const headers = new Headers(res.headers);
 
-  if (origin) {
-    headers.set("Access-Control-Allow-Origin", origin);
-    headers.set("Vary", "Origin");
-    headers.set("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS");
-    headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
-    headers.set("Access-Control-Max-Age", "86400");
-  } else {
-    headers.set("Vary", "Origin");
-  }
+  headers.set("Access-Control-Allow-Origin", "*");
+  headers.set("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS");
+  headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  headers.set("Access-Control-Max-Age", "86400");
+  // Vary não é necessário com "*", mas não atrapalha
+  headers.set("Vary", "Origin");
 
   return new Response(res.body, { status: res.status, statusText: res.statusText, headers });
 }
 
-function corsPreflight(req: Request): Response | null {
-  if (req.method !== "OPTIONS") return null;
-
-  const origin = getAllowedOrigin(req);
-  const headers = new Headers();
-  if (origin) {
-    headers.set("Access-Control-Allow-Origin", origin);
-    headers.set("Vary", "Origin");
-    headers.set("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS");
-    headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
-    headers.set("Access-Control-Max-Age", "86400");
-  } else {
-    headers.set("Vary", "Origin");
-  }
-
-  return new Response(null, { status: 204, headers });
+function corsPreflight(_req: Request): Response | null {
+  return new Response(null, {
+    status: 204,
+    headers: new Headers({
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Methods": "GET,POST,PUT,DELETE,OPTIONS",
+      "Access-Control-Allow-Headers": "Content-Type, Authorization",
+      "Access-Control-Max-Age": "86400",
+      Vary: "Origin",
+    }),
+  });
 }
 // =========================
 
