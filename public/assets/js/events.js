@@ -1,5 +1,21 @@
 import { api, showFlash, clearFlash, escapeHtml, formatDateBr } from "./common.js";
 
+/**
+ * Só roda na página de eventos.
+ * - pathname pode ser "/events" ou "/events.html" dependendo do seu setup.
+ */
+function isEventsPage() {
+  const path = (window.location.pathname || "").toLowerCase();
+  if (path.endsWith("/events") || path.endsWith("/events.html")) return true;
+
+  // fallback: checa se existe o bloco "Novo evento" + botão "Gerar FDS do mes"
+  const hasNewEvent = !!document.querySelector("h2, h3, h4")?.textContent?.toLowerCase().includes("novo evento");
+  const hasGenerateBtn = Array.from(document.querySelectorAll("button")).some((b) =>
+    (b.textContent || "").toLowerCase().includes("gerar fds")
+  );
+  return hasNewEvent || hasGenerateBtn;
+}
+
 function getTbody() {
   return document.querySelector("#eventsTableBody") || document.querySelector("table tbody");
 }
@@ -73,170 +89,107 @@ async function deleteEvent(id) {
   }
 }
 
-function wireDeleteAction() {
-  const tbody = getTbody();
-  if (!tbody) return;
-
-  tbody.addEventListener("click", (e) => {
-    const target = e.target;
-    if (!(target instanceof HTMLElement)) return;
-
-    const btn = target.closest("button[data-action='delete']");
-    if (!btn) return;
-
-    const id = btn.getAttribute("data-id");
-    deleteEvent(id);
-  });
-}
-
-// ---------- NOVO: Criar evento ----------
-function findCreateFields() {
-  // tenta ids comuns; se não achar, tenta inputs pela posição (fallback)
-  const type =
-    document.querySelector("#newEventType") ||
-    document.querySelector("select[name='type']") ||
-    document.querySelector("select");
-
-  const date =
-    document.querySelector("#newEventDate") ||
-    document.querySelector("input[name='event_date']") ||
-    document.querySelector("input[type='date']") ||
-    document.querySelector("input[placeholder*='dd']");
-
-  const label =
-    document.querySelector("#newEventLabel") ||
-    document.querySelector("input[name='label']") ||
-    document.querySelector("input[placeholder*='Sábado']") ||
-    document.querySelector("input[placeholder*='Sabado']");
-
-  // botão "Criar"
-  const createBtn =
-    document.querySelector("#createEventBtn") ||
-    Array.from(document.querySelectorAll("button")).find((b) => b.textContent?.trim() === "Criar");
-
-  return { type, date, label, createBtn };
-}
-
-function toIsoDateFromInput(value) {
-  const v = String(value || "").trim();
-  // input type=date -> YYYY-MM-DD
-  if (/^\d{4}-\d{2}-\d{2}$/.test(v)) return v;
-  // dd/mm/aaaa
-  const m = v.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
-  if (m) return `${m[3]}-${m[2]}-${m[1]}`;
-  return "";
-}
-
-async function createEvent() {
-  const { type, date, label } = findCreateFields();
-
-  const typeVal = String(type?.value || "").trim().toUpperCase();
-  const dateVal = toIsoDateFromInput(date?.value);
-  const labelVal = String(label?.value || "").trim();
-
-  if (!typeVal || !dateVal || !labelVal) {
-    showFlash("Preencha Tipo, Data e Label para criar o evento.", "error");
-    return;
-  }
-
-  try {
-    clearFlash();
-    await api("/events", {
-      method: "POST",
-      body: { type: typeVal, event_date: dateVal, label: labelVal },
-    });
-    showFlash("Evento criado com sucesso.", "success");
-    if (label) label.value = "";
-    await loadEvents();
-  } catch (err) {
-    showFlash(err?.message || "Falha ao criar evento.", "error");
-  }
-}
-
-function wireCreateEvent() {
-  const { createBtn } = findCreateFields();
-  if (!createBtn) return;
-
-  createBtn.addEventListener("click", (e) => {
-    e.preventDefault();
-    createEvent();
-  });
-}
-
-// ---------- NOVO: Gerar FDS do mês ----------
-function findWeekendFields() {
-  const monthInput =
-    document.querySelector("#weekendsMonth") ||
-    document.querySelector("input[name='month']") ||
-    document.querySelector("input[placeholder*='YYYY']") ||
-    // fallback: o input do bloco "Gerar FDS do mes" costuma ser o primeiro input desse bloco
-    Array.from(document.querySelectorAll("input")).find((i) => i.closest("section,div")?.textContent?.includes("Gerar FDS"));
-
-  const btn =
-    document.querySelector("#generateWeekendsBtn") ||
-    Array.from(document.querySelectorAll("button")).find((b) => b.textContent?.includes("Gerar FDS"));
-
-  return { monthInput, btn };
-}
-
 function normalizeMonth(value) {
   const v = String(value || "").trim();
+  if (/^\d{4}-(0[1-9]|1[0-2])$/.test(v)) return v; // YYYY-MM
 
-  // já está em YYYY-MM
-  if (/^\d{4}-(0[1-9]|1[0-2])$/.test(v)) return v;
-
-  // aceita MM/YY (ex: 05/26) -> 2026-05
+  // aceita MM/YY (05/26 -> 2026-05)
   const m = v.match(/^(0[1-9]|1[0-2])\/(\d{2})$/);
   if (m) return `20${m[2]}-${m[1]}`;
 
-  // aceita MM/YYYY -> YYYY-MM
+  // aceita MM/YYYY
   const m2 = v.match(/^(0[1-9]|1[0-2])\/(\d{4})$/);
   if (m2) return `${m2[2]}-${m2[1]}`;
 
   return "";
 }
 
-async function generateWeekends() {
-  const { monthInput } = findWeekendFields();
-  const month = normalizeMonth(monthInput?.value);
+function toIsoDateFromInput(value) {
+  const v = String(value || "").trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(v)) return v; // input type=date
 
-  if (!month) {
-    showFlash("Mês inválido. Use YYYY-MM (ex: 2026-05) ou MM/AA (ex: 05/26).", "error");
-    return;
+  const m = v.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  if (m) return `${m[3]}-${m[2]}-${m[1]}`;
+  return "";
+}
+
+function wireActions() {
+  // IDs esperados SOMENTE na página de eventos:
+  const typeEl = document.querySelector("#newEventType");
+  const dateEl = document.querySelector("#newEventDate");
+  const labelEl = document.querySelector("#newEventLabel");
+  const createBtn = document.querySelector("#createEventBtn");
+
+  const monthEl = document.querySelector("#weekendsMonth");
+  const genBtn = document.querySelector("#generateWeekendsBtn");
+
+  // se não achar os elementos, não faz bind (não interfere em outras páginas)
+  if (createBtn && typeEl && dateEl && labelEl) {
+    createBtn.addEventListener("click", async (e) => {
+      e.preventDefault();
+
+      const type = String(typeEl.value || "").trim().toUpperCase();
+      const event_date = toIsoDateFromInput(dateEl.value);
+      const label = String(labelEl.value || "").trim();
+
+      if (!type || !event_date || !label) {
+        showFlash("Preencha Tipo, Data e Label para criar o evento.", "error");
+        return;
+      }
+
+      try {
+        clearFlash();
+        await api("/events", { method: "POST", body: { type, event_date, label } });
+        showFlash("Evento criado com sucesso.", "success");
+        labelEl.value = "";
+        await loadEvents();
+      } catch (err) {
+        showFlash(err?.message || "Falha ao criar evento.", "error");
+      }
+    });
   }
 
-  try {
-    clearFlash();
-    const res = await api("/events/generate-weekends", { method: "POST", body: { month } });
-    showFlash(res?.data?.message || "Finais de semana gerados.", "success");
-    await loadEvents();
-  } catch (err) {
-    showFlash(err?.message || "Falha ao gerar FDS do mês.", "error");
+  if (genBtn && monthEl) {
+    genBtn.addEventListener("click", async (e) => {
+      e.preventDefault();
+      const month = normalizeMonth(monthEl.value);
+
+      if (!month) {
+        showFlash("Mês inválido. Use YYYY-MM (ex: 2026-05) ou MM/AA (ex: 05/26).", "error");
+        return;
+      }
+
+      try {
+        clearFlash();
+        const res = await api("/events/generate-weekends", { method: "POST", body: { month } });
+        showFlash(res?.data?.message || "FDS gerados.", "success");
+        await loadEvents();
+      } catch (err) {
+        showFlash(err?.message || "Falha ao gerar FDS do mês.", "error");
+      }
+    });
+  }
+
+  const tbody = getTbody();
+  if (tbody) {
+    tbody.addEventListener("click", (e) => {
+      const target = e.target;
+      if (!(target instanceof HTMLElement)) return;
+      const btn = target.closest("button[data-action='delete']");
+      if (!btn) return;
+      deleteEvent(btn.getAttribute("data-id"));
+    });
   }
 }
 
-function wireGenerateWeekends() {
-  const { btn } = findWeekendFields();
-  if (!btn) return;
-
-  btn.addEventListener("click", (e) => {
-    e.preventDefault();
-    generateWeekends();
-  });
-}
-
-// ✅ Export que seu app.js espera
+// Export que seu app.js chama
 export function initEventsPage() {
-  wireDeleteAction();
-  wireCreateEvent();
-  wireGenerateWeekends();
+  if (!isEventsPage()) return;
+  wireActions();
   loadEvents();
 }
 
-// Fallback caso alguém abra events.html direto
+// fallback se abrir events.html direto
 document.addEventListener("DOMContentLoaded", () => {
-  if (!window.__ESCALA_EVENTS_INIT__) {
-    window.__ESCALA_EVENTS_INIT__ = true;
-    initEventsPage();
-  }
+  initEventsPage();
 });
