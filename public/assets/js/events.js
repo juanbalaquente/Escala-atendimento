@@ -1,187 +1,194 @@
-import { api, clearFlash, escapeHtml, formatDateBr, getQueryParam, setQueryParam, showFlash } from "./common.js";
+import { api, showFlash, clearFlash, escapeHtml, formatDateBr } from "./common.js";
 
-export async function initEventsPage() {
-  const form = document.getElementById("eventForm");
-  const title = document.getElementById("eventFormTitle");
-  const idField = document.getElementById("eventId");
-  const typeField = document.getElementById("eventType");
-  const dateField = document.getElementById("eventDate");
-  const labelField = document.getElementById("eventLabel");
-  const submitBtn = document.getElementById("eventSubmitBtn");
-  const cancelBtn = document.getElementById("eventCancelBtn");
-  const eventsBody = document.getElementById("eventsBody");
-  const monthInput = document.getElementById("monthInput");
-  const generateBtn = document.getElementById("btnGenerateWeekends");
-  const generateResult = document.getElementById("generateResult");
+/**
+ * AJUSTE SE NECESSÁRIO:
+ * Se sua tabela de eventos tiver outro seletor (id/class), troque aqui.
+ * Exemplo: "#events tbody" ou "#eventsTbody"
+ */
+const TABLE_BODY_SELECTOR = "#eventsTableBody";
 
-  if (
-    !form ||
-    !title ||
-    !idField ||
-    !typeField ||
-    !dateField ||
-    !labelField ||
-    !submitBtn ||
-    !cancelBtn ||
-    !eventsBody ||
-    !monthInput ||
-    !generateBtn ||
-    !generateResult
-  ) {
+/** Helpers */
+function $(sel) {
+  return document.querySelector(sel);
+}
+
+function setTableMessage(htmlRow) {
+  const tbody = $(TABLE_BODY_SELECTOR);
+  if (!tbody) return;
+  tbody.innerHTML = htmlRow;
+}
+
+function toIsoDateFromInput(value) {
+  // Aceita "YYYY-MM-DD" (input type=date) ou "DD/MM/YYYY"
+  const v = String(value || "").trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(v)) return v;
+
+  const m = v.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  if (m) return `${m[3]}-${m[2]}-${m[1]}`;
+  return "";
+}
+
+function toMonthYYYYMM(value) {
+  // Aceita "YYYY-MM"
+  const v = String(value || "").trim();
+  if (/^\d{4}-(0[1-9]|1[0-2])$/.test(v)) return v;
+  return "";
+}
+
+function renderEvents(events) {
+  const tbody = $(TABLE_BODY_SELECTOR);
+  if (!tbody) return;
+
+  if (!Array.isArray(events) || events.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="5">Nenhum evento encontrado.</td></tr>`;
     return;
   }
 
-  let events = [];
-  monthInput.value = new Date().toISOString().slice(0, 7);
+  tbody.innerHTML = events
+    .map((ev) => {
+      const id = ev.id ?? "";
+      const date = ev.event_date ? formatDateBr(ev.event_date) : "";
+      const type = ev.type ?? "";
+      const label = ev.label ?? "";
+      const shiftsCount = ev.shifts_count ?? 0;
 
-  function resetForm() {
-    idField.value = "";
-    form.reset();
-    title.textContent = "Novo evento";
-    submitBtn.textContent = "Criar";
-    cancelBtn.classList.add("hidden");
-    setQueryParam("edit", null);
-  }
+      // Ações: Editar/Imprimir (se você tiver rotas/páginas)
+      const editHref = `event-edit.html?event_id=${encodeURIComponent(id)}`;
+      const printHref = `event-print.html?event_id=${encodeURIComponent(id)}`;
 
-  function startEdit(eventId) {
-    const current = events.find((event) => Number(event.id) === Number(eventId));
-    if (!current) {
-      showFlash("Evento nao encontrado para edicao.", "error");
-      return;
-    }
+      return `<tr>
+        <td>${escapeHtml(date)}</td>
+        <td>${escapeHtml(type)}</td>
+        <td>${escapeHtml(label)}</td>
+        <td>${escapeHtml(String(shiftsCount))}</td>
+        <td class="actions">
+          <a class="btn btn-sm" href="${escapeHtml(editHref)}">Editar</a>
+          <a class="btn btn-sm" href="${escapeHtml(printHref)}">Imprimir</a>
+          <button class="btn btn-sm danger" data-action="delete" data-id="${escapeHtml(String(id))}">Excluir</button>
+        </td>
+      </tr>`;
+    })
+    .join("");
+}
 
-    idField.value = String(current.id);
-    typeField.value = current.type || "";
-    dateField.value = current.event_date || "";
-    labelField.value = current.label || "";
-    title.textContent = "Editar evento";
-    submitBtn.textContent = "Atualizar";
-    cancelBtn.classList.remove("hidden");
-    setQueryParam("edit", current.id);
-    window.scrollTo({ top: 0, behavior: "smooth" });
-  }
-
-  function renderEvents() {
-    if (events.length === 0) {
-      eventsBody.innerHTML = "<tr><td colspan=\"5\">Nenhum evento cadastrado.</td></tr>";
-      return;
-    }
-
-    eventsBody.innerHTML = events
-      .map(
-        (event) => `
-          <tr>
-            <td>${escapeHtml(formatDateBr(event.event_date))}</td>
-            <td>${escapeHtml(event.type)}</td>
-            <td>${escapeHtml(event.label)}</td>
-            <td>${escapeHtml(String(event.shifts_count || 0))}</td>
-            <td>
-              <div class="table-actions">
-                <a class="action-btn action-primary" href="event-edit.html?id=${event.id}">Montar escala</a>
-                <a class="action-btn action-ghost" href="event-print.html?id=${event.id}" target="_blank">Print</a>
-                <button type="button" class="action-btn action-secondary" data-edit-id="${event.id}">Editar</button>
-                <button type="button" class="action-btn action-danger" data-delete-id="${event.id}">Excluir</button>
-              </div>
-            </td>
-          </tr>
-        `,
-      )
-      .join("");
-  }
-
-  async function loadData() {
-    const response = await api("/events");
-    events = response.data || [];
-    renderEvents();
-
-    const editParam = Number(getQueryParam("edit") || 0);
-    if (editParam > 0) {
-      startEdit(editParam);
-    } else {
-      resetForm();
-    }
-  }
-
-  form.addEventListener("submit", async function (event) {
-    event.preventDefault();
-    clearFlash();
-
-    const payload = {
-      type: typeField.value,
-      event_date: dateField.value,
-      label: labelField.value,
-    };
-
-    try {
-      if (idField.value) {
-        await api(`/events/${idField.value}`, { method: "PUT", body: payload });
-        showFlash("Evento atualizado com sucesso.", "success");
-      } else {
-        await api("/events", { method: "POST", body: payload });
-        showFlash("Evento criado com sucesso.", "success");
-      }
-      await loadData();
-    } catch (error) {
-      showFlash(error.message || "Falha ao salvar evento.", "error");
-    }
-  });
-
-  cancelBtn.addEventListener("click", function () {
-    resetForm();
-  });
-
-  eventsBody.addEventListener("click", async function (event) {
-    const target = event.target;
-    if (!target) {
-      return;
-    }
-
-    const editId = target.getAttribute("data-edit-id");
-    if (editId) {
-      startEdit(Number(editId));
-      return;
-    }
-
-    const deleteId = target.getAttribute("data-delete-id");
-    if (!deleteId) {
-      return;
-    }
-
-    if (!window.confirm("Deseja realmente excluir este evento?")) {
-      return;
-    }
-    try {
-      await api(`/events/${deleteId}`, { method: "DELETE" });
-      showFlash("Evento removido.", "success");
-      await loadData();
-    } catch (error) {
-      showFlash(error.message || "Falha ao excluir evento.", "error");
-    }
-  });
-
-  generateBtn.addEventListener("click", async function () {
-    const month = monthInput.value;
-    if (!month) {
-      generateResult.textContent = "Selecione um mes.";
-      return;
-    }
-
-    generateResult.textContent = "Gerando eventos...";
-    try {
-      const response = await api("/events/generate-weekends", {
-        method: "POST",
-        body: { month },
-      });
-      generateResult.textContent = response.data?.message || "Geracao concluida.";
-      await loadData();
-    } catch (error) {
-      generateResult.textContent = error.message || "Falha ao gerar eventos.";
-    }
-  });
+async function loadEvents() {
+  setTableMessage(`<tr><td colspan="5">Carregando...</td></tr>`);
 
   try {
-    await loadData();
-  } catch (error) {
-    showFlash(error.message || "Falha ao carregar eventos.", "error");
+    clearFlash();
+    const res = await api("/events", { method: "GET" });
+    const events = res && res.data ? res.data : [];
+    renderEvents(events);
+  } catch (err) {
+    const msg = err?.message || "Falha ao carregar eventos.";
+    showFlash(msg, "error");
+    setTableMessage(`<tr><td colspan="5">Erro ao carregar.</td></tr>`);
   }
 }
+
+async function createEvent() {
+  const typeEl = $("#newEventType");
+  const dateEl = $("#newEventDate");
+  const labelEl = $("#newEventLabel");
+
+  const type = String(typeEl?.value || "").trim();
+  const event_date = toIsoDateFromInput(dateEl?.value);
+  const label = String(labelEl?.value || "").trim();
+
+  if (!type || !event_date || !label) {
+    showFlash("Preencha Tipo, Data e Label.", "error");
+    return;
+  }
+
+  try {
+    clearFlash();
+    await api("/events", {
+      method: "POST",
+      body: { type, event_date, label },
+    });
+    showFlash("Evento criado com sucesso.", "success");
+
+    // limpa campos
+    if (labelEl) labelEl.value = "";
+    await loadEvents();
+  } catch (err) {
+    showFlash(err?.message || "Falha ao criar evento.", "error");
+  }
+}
+
+async function generateWeekends() {
+  const monthEl = $("#weekendsMonth");
+  const month = toMonthYYYYMM(monthEl?.value);
+
+  if (!month) {
+    showFlash("Mês inválido. Use YYYY-MM.", "error");
+    return;
+  }
+
+  try {
+    clearFlash();
+    const res = await api("/events/generate-weekends", {
+      method: "POST",
+      body: { month },
+    });
+    showFlash((res && res.data && res.data.message) ? res.data.message : "Geração concluída.", "success");
+    await loadEvents();
+  } catch (err) {
+    showFlash(err?.message || "Falha ao gerar finais de semana.", "error");
+  }
+}
+
+async function deleteEvent(id) {
+  if (!id) return;
+  const ok = confirm("Deseja realmente remover este evento?");
+  if (!ok) return;
+
+  try {
+    clearFlash();
+    await api(`/events/${encodeURIComponent(id)}`, { method: "DELETE" });
+    showFlash("Evento removido.", "success");
+    await loadEvents();
+  } catch (err) {
+    showFlash(err?.message || "Falha ao remover evento.", "error");
+  }
+}
+
+function wireActions() {
+  // Botão Criar
+  const createBtn = $("#createEventBtn");
+  if (createBtn) {
+    createBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      createEvent();
+    });
+  }
+
+  // Botão Gerar FDS do mês
+  const genBtn = $("#generateWeekendsBtn");
+  if (genBtn) {
+    genBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      generateWeekends();
+    });
+  }
+
+  // Delegação para excluir
+  const tbody = $(TABLE_BODY_SELECTOR);
+  if (tbody) {
+    tbody.addEventListener("click", (e) => {
+      const target = e.target;
+      if (!(target instanceof HTMLElement)) return;
+
+      const btn = target.closest("button[data-action='delete']");
+      if (!btn) return;
+
+      const id = btn.getAttribute("data-id");
+      deleteEvent(id);
+    });
+  }
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  wireActions();
+  loadEvents();
+});
