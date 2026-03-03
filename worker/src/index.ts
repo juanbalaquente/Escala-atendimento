@@ -17,24 +17,26 @@ import {
 import { validateShiftRows } from "./validation";
 
 const DEFAULT_API_VERSION = "0.1.0";
-// =========================
+
 // =========================
 // CORS (liberado enquanto estiver sem domínio)
 // =========================
-function applyCors(req: Request, res: Response): Response {
+function applyCors(_req: Request, res: Response): Response {
   const headers = new Headers(res.headers);
 
   headers.set("Access-Control-Allow-Origin", "*");
   headers.set("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS");
   headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
   headers.set("Access-Control-Max-Age", "86400");
-  // Vary não é necessário com "*", mas não atrapalha
   headers.set("Vary", "Origin");
 
   return new Response(res.body, { status: res.status, statusText: res.statusText, headers });
 }
 
-function corsPreflight(_req: Request): Response | null {
+function corsPreflight(req: Request): Response | null {
+  // ✅ PRE-FLIGHT só para OPTIONS
+  if (req.method !== "OPTIONS") return null;
+
   return new Response(null, {
     status: 204,
     headers: new Headers({
@@ -217,7 +219,7 @@ async function handleApiRequest(request: Request, env: Env): Promise<Response> {
     return applyCors(request, jsonError(404, "Rota nao encontrada."));
   }
 
-  // Se alguém mandar OPTIONS fora do preflight (redundância segura)
+  // OPTIONS fora do preflight (redundância segura)
   if (request.method === "OPTIONS") {
     return corsPreflight(request) ?? applyCors(request, jsonNoContent());
   }
