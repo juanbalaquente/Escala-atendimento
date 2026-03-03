@@ -1,16 +1,12 @@
 import { api, showFlash, clearFlash, escapeHtml, formatDateBr } from "./common.js";
 
-const TABLE_BODY_SELECTOR = "#eventsTableBody";
+const TABLE_BODY_SELECTOR = "#eventsTableBody, #events tbody, table tbody";
 
 function $(sel) {
   return document.querySelector(sel);
 }
 
-function setTableMessage(htmlRow) {
-  const tbody = $(TABLE_BODY_SELECTOR);
-  if (!tbody) return;
-  tbody.innerHTML = htmlRow;
-}
+
 
 function toIsoDateFromInput(value) {
   const v = String(value || "").trim();
