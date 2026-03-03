@@ -1,13 +1,7 @@
 import { api, showFlash, clearFlash, escapeHtml, formatDateBr } from "./common.js";
 
-/**
- * AJUSTE SE NECESSÁRIO:
- * Se sua tabela de eventos tiver outro seletor (id/class), troque aqui.
- * Exemplo: "#events tbody" ou "#eventsTbody"
- */
 const TABLE_BODY_SELECTOR = "#eventsTableBody";
 
-/** Helpers */
 function $(sel) {
   return document.querySelector(sel);
 }
@@ -19,7 +13,6 @@ function setTableMessage(htmlRow) {
 }
 
 function toIsoDateFromInput(value) {
-  // Aceita "YYYY-MM-DD" (input type=date) ou "DD/MM/YYYY"
   const v = String(value || "").trim();
   if (/^\d{4}-\d{2}-\d{2}$/.test(v)) return v;
 
@@ -29,7 +22,6 @@ function toIsoDateFromInput(value) {
 }
 
 function toMonthYYYYMM(value) {
-  // Aceita "YYYY-MM"
   const v = String(value || "").trim();
   if (/^\d{4}-(0[1-9]|1[0-2])$/.test(v)) return v;
   return "";
@@ -52,7 +44,6 @@ function renderEvents(events) {
       const label = ev.label ?? "";
       const shiftsCount = ev.shifts_count ?? 0;
 
-      // Ações: Editar/Imprimir (se você tiver rotas/páginas)
       const editHref = `event-edit.html?event_id=${encodeURIComponent(id)}`;
       const printHref = `event-print.html?event_id=${encodeURIComponent(id)}`;
 
@@ -80,8 +71,7 @@ async function loadEvents() {
     const events = res && res.data ? res.data : [];
     renderEvents(events);
   } catch (err) {
-    const msg = err?.message || "Falha ao carregar eventos.";
-    showFlash(msg, "error");
+    showFlash(err?.message || "Falha ao carregar eventos.", "error");
     setTableMessage(`<tr><td colspan="5">Erro ao carregar.</td></tr>`);
   }
 }
@@ -102,13 +92,8 @@ async function createEvent() {
 
   try {
     clearFlash();
-    await api("/events", {
-      method: "POST",
-      body: { type, event_date, label },
-    });
+    await api("/events", { method: "POST", body: { type, event_date, label } });
     showFlash("Evento criado com sucesso.", "success");
-
-    // limpa campos
     if (labelEl) labelEl.value = "";
     await loadEvents();
   } catch (err) {
@@ -127,11 +112,9 @@ async function generateWeekends() {
 
   try {
     clearFlash();
-    const res = await api("/events/generate-weekends", {
-      method: "POST",
-      body: { month },
-    });
-    showFlash((res && res.data && res.data.message) ? res.data.message : "Geração concluída.", "success");
+    const res = await api("/events/generate-weekends", { method: "POST", body: { month } });
+    const msg = res?.data?.message || "Geração concluída.";
+    showFlash(msg, "success");
     await loadEvents();
   } catch (err) {
     showFlash(err?.message || "Falha ao gerar finais de semana.", "error");
@@ -140,8 +123,7 @@ async function generateWeekends() {
 
 async function deleteEvent(id) {
   if (!id) return;
-  const ok = confirm("Deseja realmente remover este evento?");
-  if (!ok) return;
+  if (!confirm("Deseja realmente remover este evento?")) return;
 
   try {
     clearFlash();
@@ -154,7 +136,6 @@ async function deleteEvent(id) {
 }
 
 function wireActions() {
-  // Botão Criar
   const createBtn = $("#createEventBtn");
   if (createBtn) {
     createBtn.addEventListener("click", (e) => {
@@ -163,7 +144,6 @@ function wireActions() {
     });
   }
 
-  // Botão Gerar FDS do mês
   const genBtn = $("#generateWeekendsBtn");
   if (genBtn) {
     genBtn.addEventListener("click", (e) => {
@@ -172,7 +152,6 @@ function wireActions() {
     });
   }
 
-  // Delegação para excluir
   const tbody = $(TABLE_BODY_SELECTOR);
   if (tbody) {
     tbody.addEventListener("click", (e) => {
@@ -188,7 +167,17 @@ function wireActions() {
   }
 }
 
-document.addEventListener("DOMContentLoaded", () => {
+// ✅ Export que o app.js espera
+export function initEventsPage() {
   wireActions();
   loadEvents();
+}
+
+// Se você abrir events.html direto sem app.js, ainda funciona:
+document.addEventListener("DOMContentLoaded", () => {
+  // evita dupla inicialização caso app.js já chame
+  if (!window.__ESCALA_EVENTS_INIT__) {
+    window.__ESCALA_EVENTS_INIT__ = true;
+    initEventsPage();
+  }
 });
