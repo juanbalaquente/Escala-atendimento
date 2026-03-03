@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Escala de Atendimento - Montar Escala</title>
+    <script>
+    (function () {
+        try {
+            var theme = localStorage.getItem('escala-theme') === 'dark' ? 'dark' : 'light';
+            document.documentElement.setAttribute('data-theme', theme);
+        } catch (e) {
+            document.documentElement.setAttribute('data-theme', 'light');
+        }
+    })();
+    </script>
+    <link rel="stylesheet" href="assets/css/app.css">
+</head>
+<body data-page="event-edit">
+<header class="sidebar no-print">
+    <div class="brand">
+        <h1>Escala de Atendimento</h1>
+        <small>Operacao FDS e feriados</small>
+    </div>
+    <nav class="main-nav">
+        <a class="nav-link" href="index.html">Dashboard</a>
+        <a class="nav-link" href="collaborators.html">Colaboradores</a>
+        <a class="nav-link active" href="events.html">Eventos</a>
+    </nav>
+    <div class="theme-switcher">
+        <label for="themeSelect">Tema</label>
+        <select id="themeSelect" aria-label="Selecionar tema">
+            <option value="light">Claro</option>
+            <option value="dark">Escuro</option>
+        </select>
+    </div>
+</header>
+
+<main class="container with-sidebar">
+    <div id="flashHost"></div>
+
+    <section>
+        <h2>Montar escala</h2>
+        <p><strong>Evento:</strong> <span id="eventHeader">Carregando...</span></p>
+        <p class="muted">Escala inclui apenas Analistas e Suporte N1 ativos.</p>
+
+        <div id="validationResult" class="alert error hidden"></div>
+
+        <form id="shiftsForm">
+            <table id="shiftsTable">
+                <thead>
+                <tr>
+                    <th>Equipe</th>
+                    <th>Colaborador</th>
+                    <th>Inicio</th>
+                    <th>Fim</th>
+                    <th>Pausa 10 1</th>
+                    <th>Pausa 20</th>
+                    <th>Pausa 10 2</th>
+                    <th>Acoes</th>
+                </tr>
+                </thead>
+                <tbody id="shiftsBody"></tbody>
+            </table>
+
+            <div class="actions-row">
+                <button type="button" id="btnAddRow" class="btn-secondary">Adicionar linha</button>
+                <button type="button" id="btnAutoSchedule" class="btn-secondary">Gerar escala automatica</button>
+                <button type="button" id="btnValidate" class="btn-secondary">Validar</button>
+                <button type="submit" id="btnSaveShifts" class="btn-primary">Salvar escala</button>
+                <a class="btn-secondary" href="events.html">Voltar</a>
+                <a class="btn-secondary" id="printLink" target="_blank">Print</a>
+            </div>
+        </form>
+    </section>
+</main>
+
+<script type="module" src="assets/js/app.js"></script>
+</body>
+</html>

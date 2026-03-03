@@ -1,0 +1,12 @@
+name = "escala-api"
+main = "src/index.ts"
+compatibility_date = "2026-03-01"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "escala-db"
+database_id = "3b0eda63-132d-40a7-a09b-c85f9fe49860"
+migrations_dir = "migrations"
+
+[vars]
+APP_VERSION = "0.1.0"

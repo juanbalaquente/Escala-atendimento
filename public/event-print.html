@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Escala de Atendimento - Print</title>
+    <script>
+    (function () {
+        try {
+            var theme = localStorage.getItem('escala-theme') === 'dark' ? 'dark' : 'light';
+            document.documentElement.setAttribute('data-theme', theme);
+        } catch (e) {
+            document.documentElement.setAttribute('data-theme', 'light');
+        }
+    })();
+    </script>
+    <link rel="stylesheet" href="assets/css/app.css">
+</head>
+<body data-page="event-print">
+<main class="container">
+    <div id="flashHost"></div>
+
+    <section class="print-toolbar no-print">
+        <a class="btn-secondary" id="backToEdit">Voltar</a>
+        <button type="button" onclick="window.print()" class="btn-primary">Imprimir</button>
+    </section>
+
+    <section class="print-event-block">
+        <h2>Escala de Atendimento</h2>
+        <p><strong>Evento:</strong> <span id="printEventHeader">Carregando...</span></p>
+        <div id="printTeamsContainer"></div>
+    </section>
+</main>
+
+<script type="module" src="assets/js/app.js"></script>
+</body>
+</html>

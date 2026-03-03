@@ -1,194 +1,131 @@
-# Escala de Atendimento (MVP)
+# Escala de Atendimento - Deploy Cloudflare (Pages + Worker + D1)
 
-Sistema web para substituir planilha de escala de atendimento, rodando localmente com XAMPP.
+Projeto preparado para deploy com:
 
-## Objetivo
+- Front estatico em `public/`
+- API no Worker em `worker/`
+- Banco D1 com migration em `worker/migrations/0001_init.sql`
 
-Centralizar a montagem da escala em um site, com foco em eventos:
-- `FDS` (sabado e domingo)
-- `FERIADO`
+O front usa `fetch("/api/...")` por padrao.
 
-## Funcionalidades
+## Requisitos
 
-- CRUD de colaboradores
-- CRUD de eventos
-- Geracao de eventos de fim de semana por mes (`Gerar FDS do mes`)
-- Montagem manual de escala por evento
-- Geracao automatica de escala por evento (`Gerar escala automatica`)
-- Validacao rigida de turno e pausas (cliente + servidor)
-- Visualizacao de impressao (`Print`)
-- Menu lateral para navegacao
-- Tema claro/escuro com persistencia em `localStorage`
+- Node.js 20+
+- npm
+- Conta Cloudflare
 
-## Regras de negocio
+## A) Login no Wrangler
 
-A escala considera apenas:
-- `ANALISTA`
-- `SUPORTE_N1`
-
-Cada linha de escala exige:
-- inicio do turno (`shift_start`)
-- fim do turno (`shift_end`)
-- `break_10_1`
-- `break_20`
-- `break_10_2`
-
-Validacoes obrigatorias:
-1. `shift_end > shift_start`
-2. As 3 pausas devem estar dentro do turno
-3. Ordem obrigatoria: `break_10_1 < break_20 < break_10_2`
-4. Colaborador nao pode repetir no mesmo evento
-5. Todos os campos sao obrigatorios (incluindo pausas)
-
-## Escala automatica
-
-A autoescala fica na tela `Montar escala`.
-
-Comportamento atual:
-- Sabado: monta 1 analista + 5 SUPORTE_N1
-- Domingo: monta 2 SUPORTE_N1
-- Considera historico para reduzir repeticao de pessoas
-- Aplica aleatorizacao por evento/slot para evitar padrao fixo entre semanas
-- Usa bloqueios entre sabado/domingo para reduzir escalas consecutivas no fim de semana
-- Possui fallback progressivo no domingo para evitar erro de geracao quando o pool estiver muito restrito
-
-## Stack
-
-- Apache + PHP 8+ (XAMPP)
-- MySQL/MariaDB
-- PHP puro (PDO)
-- HTML + CSS + JavaScript (sem framework)
-
-## Estrutura do projeto
-
-```text
-escala/
-  app/
-    config/
-      db.php
-    lib/
-      helpers.php
-      validate.php
-      auto_schedule.php
-  database/
-    schema.sql
-    seed.sql
-  public/
-    index.php
-    assets/
-      css/app.css
-      js/app.js
-    pages/
-      _header.php
-      _footer.php
-      dashboard.php
-      collaborators.php
-      events.php
-      event_edit.php
-      event_print.php
-      api_validate.php
-      api_events_generate_weekends.php
-      api_events_auto_schedule.php
+```bash
+wrangler login
 ```
 
-## Banco de dados
+## B) Criar D1
 
-Banco: `escala_atendimento`
+```bash
+cd worker
+wrangler d1 create escala-db
+```
 
-Tabelas:
-- `teams`
-- `collaborators`
-- `events`
-- `shifts`
+Copie o `database_id` retornado e preencha `worker/wrangler.toml`:
 
-Detalhes importantes:
-- Seed de `teams` no schema:
-  - `ANALISTA`
-  - `SUPORTE_N1`
-- `shifts` possui `UNIQUE(event_id, collaborator_id)`
-- `collaborators` possui campos extras usados pela autoescala:
-  - `gender` (`F|M|N`)
-  - `weekday_shift_end` (TIME, opcional)
-  - `rotation_group` (`A|B`, opcional)
+```toml
+name = "escala-api"
+main = "src/index.ts"
+compatibility_date = "2026-03-01"
 
-## Como rodar localmente (XAMPP)
+[[d1_databases]]
+binding = "DB"
+database_name = "escala-db"
+database_id = "__PREENCHER__"
+migrations_dir = "migrations"
 
-1. Inicie `Apache` e `MySQL` no XAMPP.
-2. Abra o `phpMyAdmin`.
-3. Importe os arquivos nesta ordem:
-   - `database/schema.sql`
-   - `database/seed.sql` (opcional, dados iniciais e dados ficticios)
-4. Verifique as credenciais em `app/config/db.php`:
-   - host: `127.0.0.1`
-   - porta: `3306`
-   - banco: `escala_atendimento`
-   - usuario: `root`
-   - senha: `''` (vazia, padrao local)
-5. Acesse:
-   - `http://localhost/escala/public/`
+[vars]
+APP_VERSION = "0.1.0"
+```
 
-## Rotas
+## C) Aplicar migrations no remoto
 
-Roteador: `public/index.php`
+```bash
+cd worker
+wrangler d1 migrations apply escala-db --remote
+```
 
-Paginas:
-- `?page=dashboard`
-- `?page=collaborators`
-- `?page=events`
-- `?page=event_edit&id={EVENT_ID}`
-- `?page=event_print&id={EVENT_ID}`
+## D) Rodar local
 
-APIs:
-- `?page=api_validate`
-- `?page=api_events_generate_weekends`
-- `?page=api_events_auto_schedule`
+Terminal 1 (Worker):
 
-## Fluxo recomendado
+```bash
+cd worker
+npm i
+npm run dev
+```
 
-1. Cadastre colaboradores em `Colaboradores`.
-2. Crie eventos manualmente em `Eventos` ou use `Gerar FDS do mes`.
-3. Entre em `Montar escala`.
-4. Escolha entre:
-   - montar manualmente
-   - gerar automaticamente (`Gerar escala automatica`)
-5. Valide e salve.
-6. Use `Print` para impressao.
+Terminal 2 (front estatico):
 
-## Tela de impressao
+```bash
+npx serve public
+```
 
-A pagina `event_print`:
-- agrupa por equipe
-- lista colaboradores e horarios
-- usa CSS de impressao (`@media print`)
+Se abrir o front em outra porta e precisar apontar para o Worker local, rode no console do navegador:
 
-## Observacoes tecnicas
+```js
+localStorage.setItem("escala_api_base", "http://127.0.0.1:8787/api");
+location.reload();
+```
 
-- Projeto orientado a uso local e simplicidade
-- Sem autenticacao/login
-- Sem framework
-- Persistencia via PDO + prepared statements
+Para voltar ao padrao `/api`:
 
-## Troubleshooting rapido
+```js
+localStorage.removeItem("escala_api_base");
+location.reload();
+```
 
-### Erro de conexao com banco
-- Confirme MySQL ligado no XAMPP
-- Confirme credenciais em `app/config/db.php`
-- Reimporte `database/schema.sql`
+## E) Deploy do Worker
 
-### Pagina em branco / erro PHP
-- Confira URL: `http://localhost/escala/public/`
-- Verifique logs do Apache/PHP no XAMPP
+```bash
+cd worker
+npm run deploy
+```
 
-### Nao salva escala
-- Confira preenchimento de todos os campos
-- Verifique mensagens de validacao na tela
-- Confirme que colaborador nao esta repetido no mesmo evento
+## F) Configurar Cloudflare Pages
 
-### Erro ao gerar escala automatica
-- Verifique se ha colaboradores ativos suficientes
-- Revise `rotation_group` quando usar divisao A/B
-- Verifique se regras de bloqueio de fim de semana nao deixaram o pool muito restrito
+No projeto Pages:
 
----
+- Framework preset: `None`
+- Build command: `exit 0`
+- Output directory: `public`
 
-Projeto MVP para operacao local de escala de atendimento.
+## G) Rota `/api/*` no mesmo dominio
+
+No Dashboard Cloudflare:
+
+`Workers & Pages -> escala-api -> Settings -> Domains & Routes -> Add route`
+
+Pattern:
+
+`<SEU_DOMINIO>/api/*`
+
+Exemplo:
+
+`app.seudominio.com/api/*`
+
+## H) Pos deploy (validacao)
+
+1. Teste health:
+   `https://<dominio>/api/health`
+2. Confirme resposta:
+   `ok: true`, `data.ts`, `data.version`.
+3. Abra as telas:
+   - `/index.html`
+   - `/collaborators.html`
+   - `/events.html`
+   - `/event-edit.html?id=<id>`
+   - `/event-print.html?id=<id>`
+4. Teste CRUD de colaboradores e eventos.
+
+## Observacoes
+
+- Front sem PHP em `public/`.
+- API usa apenas `/api/*`.
+- Banco D1 via binding `DB`.

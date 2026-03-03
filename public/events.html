@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Escala de Atendimento - Eventos</title>
+    <script>
+    (function () {
+        try {
+            var theme = localStorage.getItem('escala-theme') === 'dark' ? 'dark' : 'light';
+            document.documentElement.setAttribute('data-theme', theme);
+        } catch (e) {
+            document.documentElement.setAttribute('data-theme', 'light');
+        }
+    })();
+    </script>
+    <link rel="stylesheet" href="assets/css/app.css">
+</head>
+<body data-page="events">
+<header class="sidebar no-print">
+    <div class="brand">
+        <h1>Escala de Atendimento</h1>
+        <small>Operacao FDS e feriados</small>
+    </div>
+    <nav class="main-nav">
+        <a class="nav-link" href="index.html">Dashboard</a>
+        <a class="nav-link" href="collaborators.html">Colaboradores</a>
+        <a class="nav-link active" href="events.html">Eventos</a>
+    </nav>
+    <div class="theme-switcher">
+        <label for="themeSelect">Tema</label>
+        <select id="themeSelect" aria-label="Selecionar tema">
+            <option value="light">Claro</option>
+            <option value="dark">Escuro</option>
+        </select>
+    </div>
+</header>
+
+<main class="container with-sidebar">
+    <div id="flashHost"></div>
+
+    <section>
+        <h2 id="eventFormTitle">Novo evento</h2>
+        <form id="eventForm" class="grid-form">
+            <input type="hidden" id="eventId">
+
+            <label>Tipo
+                <select id="eventType" required>
+                    <option value="">Selecione</option>
+                    <option value="FDS">FDS</option>
+                    <option value="FERIADO">FERIADO</option>
+                </select>
+            </label>
+
+            <label>Data
+                <input type="date" id="eventDate" required>
+            </label>
+
+            <label>Label
+                <input type="text" id="eventLabel" required placeholder="03 - Sabado">
+            </label>
+
+            <div class="actions-row">
+                <button type="submit" class="btn-primary" id="eventSubmitBtn">Criar</button>
+                <button type="button" class="btn-secondary hidden" id="eventCancelBtn">Cancelar</button>
+            </div>
+        </form>
+    </section>
+
+    <section class="generate-box no-print">
+        <h2>Gerar FDS do mes</h2>
+        <div class="row-inline">
+            <input type="month" id="monthInput">
+            <button type="button" id="btnGenerateWeekends" class="btn-primary">Gerar FDS do mes</button>
+        </div>
+        <p id="generateResult" class="muted"></p>
+    </section>
+
+    <section>
+        <h2>Eventos</h2>
+        <table>
+            <thead>
+            <tr>
+                <th>Data</th>
+                <th>Tipo</th>
+                <th>Label</th>
+                <th>Linhas</th>
+                <th>Acoes</th>
+            </tr>
+            </thead>
+            <tbody id="eventsBody">
+            <tr><td colspan="5">Carregando...</td></tr>
+            </tbody>
+        </table>
+    </section>
+</main>
+
+<script type="module" src="assets/js/app.js"></script>
+</body>
+</html>

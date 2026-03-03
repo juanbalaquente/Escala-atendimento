@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Escala de Atendimento - Colaboradores</title>
+    <script>
+    (function () {
+        try {
+            var theme = localStorage.getItem('escala-theme') === 'dark' ? 'dark' : 'light';
+            document.documentElement.setAttribute('data-theme', theme);
+        } catch (e) {
+            document.documentElement.setAttribute('data-theme', 'light');
+        }
+    })();
+    </script>
+    <link rel="stylesheet" href="assets/css/app.css">
+</head>
+<body data-page="collaborators">
+<header class="sidebar no-print">
+    <div class="brand">
+        <h1>Escala de Atendimento</h1>
+        <small>Operacao FDS e feriados</small>
+    </div>
+    <nav class="main-nav">
+        <a class="nav-link" href="index.html">Dashboard</a>
+        <a class="nav-link active" href="collaborators.html">Colaboradores</a>
+        <a class="nav-link" href="events.html">Eventos</a>
+    </nav>
+    <div class="theme-switcher">
+        <label for="themeSelect">Tema</label>
+        <select id="themeSelect" aria-label="Selecionar tema">
+            <option value="light">Claro</option>
+            <option value="dark">Escuro</option>
+        </select>
+    </div>
+</header>
+
+<main class="container with-sidebar">
+    <div id="flashHost"></div>
+
+    <section>
+        <h2 id="collabFormTitle">Novo colaborador</h2>
+        <form id="collabForm" class="grid-form">
+            <input type="hidden" id="collabId">
+
+            <label>Nome
+                <input type="text" id="collabName" required>
+            </label>
+
+            <label>Equipe
+                <select id="collabTeam" required>
+                    <option value="">Selecione</option>
+                </select>
+            </label>
+
+            <label>Genero
+                <select id="collabGender">
+                    <option value="N">Nao informado</option>
+                    <option value="F">Feminino</option>
+                    <option value="M">Masculino</option>
+                </select>
+            </label>
+
+            <label>Fim semana (HH:MM)
+                <input type="time" id="collabWeekdayEnd">
+            </label>
+
+            <label>Equipe Domingo
+                <select id="collabRotationGroup">
+                    <option value="">Nao definir</option>
+                    <option value="A">Equipe A</option>
+                    <option value="B">Equipe B</option>
+                </select>
+            </label>
+
+            <label class="checkbox-label">
+                <input type="checkbox" id="collabIsActive" checked>
+                Ativo
+            </label>
+
+            <div class="actions-row">
+                <button type="submit" class="btn-primary" id="collabSubmitBtn">Criar</button>
+                <button type="button" class="btn-secondary hidden" id="collabCancelBtn">Cancelar</button>
+            </div>
+        </form>
+    </section>
+
+    <section>
+        <h2>Lista de colaboradores</h2>
+        <table>
+            <thead>
+            <tr>
+                <th>Nome</th>
+                <th>Equipe</th>
+                <th>Genero</th>
+                <th>Fim semana</th>
+                <th>Equipe Domingo</th>
+                <th>Status</th>
+                <th>Acoes</th>
+            </tr>
+            </thead>
+            <tbody id="collaboratorsBody">
+            <tr><td colspan="7">Carregando...</td></tr>
+            </tbody>
+        </table>
+    </section>
+</main>
+
+<script type="module" src="assets/js/app.js"></script>
+</body>
+</html>

@@ -146,6 +146,12 @@ a:hover {
     background: var(--surface-2);
 }
 
+.nav-link.active {
+    background: var(--accent);
+    border-color: var(--primary);
+    color: var(--primary-strong);
+}
+
 .theme-switcher {
     display: flex;
     flex-direction: column;
